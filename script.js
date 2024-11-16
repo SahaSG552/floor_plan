@@ -9,7 +9,7 @@ let sofaImage = new Image();
 sofaImage.src = 'assets/sofa.png';
 let sofa = null;
 let mouseOffset = { x: 0, y: 0 };
-let magnetDistance = 30;
+const magnetDistance = 30;
 
 function drawPolygon(points, isFinal = false) {
     ctx.clearRect(0, 0, canvas.width, canvas.height);
@@ -20,7 +20,7 @@ function drawPolygon(points, isFinal = false) {
         points.forEach((point, i) => {
             if (i > 0) path.lineTo(point.x, point.y);
         });
-        if (isFinal) path.lineTo(points[0].x, points[0].y);
+        if (isFinal) path.closePath();
         ctx.strokeStyle = 'black';
         ctx.lineWidth = 2;
         ctx.stroke(path);
@@ -31,7 +31,6 @@ function drawPolygon(points, isFinal = false) {
         }
     }
 
-    // Draw points
     points.forEach(point => {
         ctx.beginPath();
         ctx.arc(point.x, point.y, 5, 0, Math.PI * 2);
@@ -40,24 +39,12 @@ function drawPolygon(points, isFinal = false) {
         ctx.closePath();
     });
 
-    // Draw sofa if it exists
     if (sofa) {
         ctx.save();
         ctx.translate(sofa.x + sofa.width / 2, sofa.y + sofa.height / 2);
         ctx.rotate(sofa.rotation);
         ctx.translate(-(sofa.x + sofa.width / 2), -(sofa.y + sofa.height / 2));
-        // Draw sofa image
         ctx.drawImage(sofaImage, sofa.x, sofa.y, sofa.width, sofa.height);
-
-        // Draw the green back line
-        /* ctx.beginPath();
-        ctx.moveTo(sofa.x, sofa.y);
-        ctx.lineTo(sofa.x + sofa.width, sofa.y);
-        ctx.strokeStyle = 'green';
-        ctx.lineWidth = 3;
-        ctx.stroke();
-        ctx.closePath(); */
-
         ctx.restore();
     }
 }
@@ -102,43 +89,7 @@ function handleMouseMove(e) {
     const { offsetX, offsetY } = e;
 
     if (isDraggingSofa && sofa) {
-        // Move sofa
-        sofa.x = offsetX - mouseOffset.x;
-        sofa.y = offsetY - mouseOffset.y;
-
-        // Snap sofa to walls
-        let minDistance = Infinity;
-        let nearestWall = null;
-        let nearestAngle = 0;
-        let wallOffset = { x: 0, y: 0 };
-
-        for (let i = 0; i < points.length - 1; i++) {
-            const start = points[i];
-            const end = points[i + 1];
-
-            const { distance, closestPoint } = pointToLineDistance(sofa.x + sofa.width / 2, sofa.y, start.x, start.y, end.x, end.y);
-
-            if (distance < minDistance) {
-                minDistance = distance;
-                nearestWall = closestPoint;
-                nearestAngle = Math.atan2(end.y - start.y, end.x - start.x);
-                wallOffset = {
-                    x: -(end.y - start.y) / Math.sqrt((end.x - start.x) ** 2 + (end.y - start.y) ** 2) * (sofa.height / 2),
-                    y: (end.x - start.x) / Math.sqrt((end.x - start.x) ** 2 + (end.y - start.y) ** 2) * (sofa.height / 2),
-                };
-            }
-        }
-
-        if (nearestWall && minDistance < magnetDistance) {
-            // Snap and rotate sofa
-            sofa.x = nearestWall.x - sofa.width / 2 + wallOffset.x;
-            sofa.y = nearestWall.y - sofa.height / 2 + wallOffset.y;
-            sofa.rotation = nearestAngle; // Rotate back side to wall
-        } else {
-            // Reset rotation when far from walls
-            sofa.rotation = 0;
-        }
-
+        moveSofa(offsetX, offsetY);
         drawPolygon(points, true);
         return;
     }
@@ -149,6 +100,41 @@ function handleMouseMove(e) {
     }
 }
 
+function moveSofa(offsetX, offsetY) {
+    sofa.x = offsetX - mouseOffset.x;
+    sofa.y = offsetY - mouseOffset.y;
+
+    let minDistance = Infinity;
+    let nearestWall = null;
+    let nearestAngle = 0;
+    let wallOffset = { x: 0, y: 0 };
+
+    for (let i = 0; i < points.length - 1; i++) {
+        const start = points[i];
+        const end = points[i + 1];
+
+        const { distance, closestPoint } = pointToLineDistance(sofa.x + sofa.width / 2, sofa.y, start.x, start.y, end.x, end.y);
+
+        if (distance < minDistance) {
+            minDistance = distance;
+            nearestWall = closestPoint;
+            nearestAngle = Math.atan2(end.y - start.y, end.x - start.x);
+            wallOffset = {
+                x: -(end.y - start.y) / Math.sqrt((end.x - start.x) ** 2 + (end.y - start.y) ** 2) * (sofa.height / 2),
+                y: (end.x - start.x) / Math.sqrt((end.x - start.x) ** 2 + (end.y - start.y) ** 2) * (sofa.height / 2),
+            };
+        }
+    }
+
+    if (nearestWall && minDistance < magnetDistance) {
+        sofa.x = nearestWall.x - sofa.width / 2 + wallOffset.x;
+        sofa.y = nearestWall.y - sofa.height / 2 + wallOffset.y;
+        sofa.rotation = nearestAngle;
+    } else {
+        sofa.rotation = 0;
+    }
+}
+
 function handleMouseClick(e) {
     if (!isDrawing) return;
 
@@ -156,21 +142,21 @@ function handleMouseClick(e) {
     const magnetPoint = findMagnetPoint(offsetX, offsetY);
 
     if (points.length > 0 && Math.abs(magnetPoint.x - points[0].x) < 8 && Math.abs(magnetPoint.y - points[0].y) < 8) {
-        // Close the polygon
         isDrawing = false;
         points.push(points[0]);
         drawPolygon(points, true);
-
-        // Center sofa in the room
-        const centerX = (Math.min(...points.map(p => p.x)) + Math.max(...points.map(p => p.x))) / 2;
-        const centerY = (Math.min(...points.map(p => p.y)) + Math.max(...points.map(p => p.y))) / 2;
-        sofa = { x: centerX - 50, y: centerY - 25, width: 100, height: 50, rotation: 0 };
-
-        drawPolygon(points, true);
+        centerSofa();
     } else {
         points.push(magnetPoint);
         drawPolygon(points);
     }
+}
+
+function centerSofa() {
+    const centerX = (Math.min(...points.map(p => p.x)) + Math.max(...points.map(p => p.x))) / 2;
+    const centerY = (Math.min(...points.map(p => p.y)) + Math.max(...points.map(p => p.y))) / 2;
+    sofa = { x: centerX - 50, y: centerY - 25, width: 100, height: 50, rotation: 0 };
+    drawPolygon(points, true);
 }
 
 function handleMouseDown(e) {
