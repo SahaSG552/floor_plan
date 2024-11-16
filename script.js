@@ -46,8 +46,6 @@ function drawPolygon(points, isFinal = false) {
         ctx.translate(sofa.x + sofa.width / 2, sofa.y + sofa.height / 2);
         ctx.rotate(sofa.rotation);
         ctx.translate(-(sofa.x + sofa.width / 2), -(sofa.y + sofa.height / 2));
-        ctx.fillStyle = 'blue';
-        ctx.fillRect(sofa.x, sofa.y, sofa.width, sofa.height);
         // Draw sofa image
         ctx.drawImage(sofaImage, sofa.x, sofa.y, sofa.width, sofa.height);
 
