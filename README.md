@@ -1,23 +1,18 @@
-Room Layout Designer
+# Room Layout Designer
 
-🎯 Features
+![GIF Animation](./floor_plan.gif)
 
-Interactive Room Drawing
+## 🎯 Features
 
-Point-to-point layout creation
+- Interactive Room Drawing
+- Point-to-point layout creation
+- Magnetic point snapping
+- Auto-closing polygons
+- Smart furniture placement
+- Draggable sofa
+- Automatic wall snapping
+- Dynamic rotation alignment
 
-Magnetic point snapping
+## 💡 How to Use
 
-Auto-closing polygons
-
-Smart Furniture Placement
-
-Draggable sofa
-
-Automatic wall snapping
-
-Dynamic rotation alignment
-
-💡 How to Use
-
-Start Drawing =)
+1. Start Drawing =)
