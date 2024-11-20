@@ -2,7 +2,39 @@ const canvas = document.getElementById('roomCanvas');
 const ctx = canvas.getContext('2d');
 const startButton = document.getElementById('start');
 
-let points = [];
+class Wall {
+    constructor(x1, y1, x2, y2, thickness = 2) {
+      this.x1 = x1;
+      this.y1 = y1;
+      this.x2 = x2;
+      this.y2 = y2;
+      this.thickness = thickness;
+    }
+  
+    // Метод для изменения координат 1-й точки
+    setPoint1(x, y) {
+      this.x1 = x;
+      this.y1 = y;
+    }
+  
+    // Метод для изменения координат 2-й точки
+    setPoint2(x, y) {
+      this.x2 = x;
+      this.y2 = y;
+    }
+  
+    // Метод для изменения толщины
+    setThickness(thickness) {
+      this.thickness = thickness;
+    }
+  
+    // Метод для получения длины стены
+    getLength() {
+      return Math.sqrt((this.x2 - this.x1) ** 2 + (this.y2 - this.y1) ** 2);
+    }
+  }
+
+let walls = [];
 let isDrawing = false;
 let isDraggingSofa = false;
 let sofaImage = new Image();
@@ -11,43 +43,49 @@ let sofa = null;
 let mouseOffset = { x: 0, y: 0 };
 const magnetDistance = 30;
 
-function drawPolygon(points, isFinal = false) {
+function drawPolygon(walls, isFinal = false) {
     ctx.clearRect(0, 0, canvas.width, canvas.height);
-
-    if (points.length > 1) {
-        const path = new Path2D();
-        path.moveTo(points[0].x, points[0].y);
-        points.forEach((point, i) => {
-            if (i > 0) path.lineTo(point.x, point.y);
-        });
-        if (isFinal) path.closePath();
-        ctx.strokeStyle = 'black';
-        ctx.lineWidth = 2;
-        ctx.stroke(path);
-
-        if (isFinal) {
-            ctx.fillStyle = 'rgba(200, 200, 200, 0.5)';
-            ctx.fill(path);
-        }
+  
+    if (walls.length > 1) {
+      const path = new Path2D();
+      path.moveTo(walls[0].x1, walls[0].y1);
+      walls.forEach((wall, i) => {
+        if (i > 0) path.lineTo(wall.x2, wall.y2);
+      });
+      if (isFinal) path.closePath();
+      ctx.strokeStyle = 'black';
+      ctx.lineWidth = 2;
+      ctx.stroke(path);
+  
+      if (isFinal) {
+        ctx.fillStyle = 'rgba(200, 200, 200, 0.5)';
+        ctx.fill(path);
+      }
     }
-
-    points.forEach(point => {
-        ctx.beginPath();
-        ctx.arc(point.x, point.y, 5, 0, Math.PI * 2);
-        ctx.fillStyle = 'red';
-        ctx.fill();
-        ctx.closePath();
+  
+    walls.forEach((wall, i) => {
+      ctx.beginPath();
+      ctx.arc(wall.x1, wall.y1, 5, 0, Math.PI * 2);
+      ctx.fillStyle = 'red';
+      ctx.fill();
+      ctx.closePath();
+  
+      ctx.beginPath();
+      ctx.arc(wall.x2, wall.y2, 5, 0, Math.PI * 2);
+      ctx.fillStyle = 'red';
+      ctx.fill();
+      ctx.closePath();
     });
-
+  
     if (sofa) {
-        ctx.save();
-        ctx.translate(sofa.x + sofa.width / 2, sofa.y + sofa.height / 2);
-        ctx.rotate(sofa.rotation);
-        ctx.translate(-(sofa.x + sofa.width / 2), -(sofa.y + sofa.height / 2));
-        ctx.drawImage(sofaImage, sofa.x, sofa.y, sofa.width, sofa.height);
-        ctx.restore();
+      ctx.save();
+      ctx.translate(sofa.x + sofa.width / 2, sofa.y + sofa.height / 2);
+      ctx.rotate(sofa.rotation);
+      ctx.translate(-(sofa.x + sofa.width / 2), -(sofa.y + sofa.height / 2));
+      ctx.drawImage(sofaImage, sofa.x, sofa.y, sofa.width, sofa.height);
+      ctx.restore();
     }
-}
+  }
 
 function findMagnetPoint(x, y) {
     for (let point of points) {
@@ -137,20 +175,24 @@ function moveSofa(offsetX, offsetY) {
 
 function handleMouseClick(e) {
     if (!isDrawing) return;
-
+  
     const { offsetX, offsetY } = e;
     const magnetPoint = findMagnetPoint(offsetX, offsetY);
-
-    if (points.length > 0 && Math.abs(magnetPoint.x - points[0].x) < 8 && Math.abs(magnetPoint.y - points[0].y) < 8) {
-        isDrawing = false;
-        points.push(points[0]);
-        drawPolygon(points, true);
-        centerSofa();
+  
+    if (walls.length > 0 && Math.abs(magnetPoint.x - walls[0].x1) < 8 && Math.abs(magnetPoint.y - walls[0].y1) < 8) {
+      isDrawing = false;
+      walls.push(new Wall(walls[0].x1, walls[0].y1, magnetPoint.x, magnetPoint.y));
+      drawPolygon(walls, true);
+      centerSofa();
     } else {
-        points.push(magnetPoint);
-        drawPolygon(points);
+      if (walls.length > 0) {
+        walls.push(new Wall(walls[walls.length - 1].x2, walls[walls.length - 1].y2, magnetPoint.x, magnetPoint.y));
+      } else {
+        walls.push(new Wall(magnetPoint.x, magnetPoint.y, magnetPoint.x, magnetPoint.y));
+      }
+      drawPolygon(walls);
     }
-}
+  }
 
 function centerSofa() {
     const centerX = (Math.min(...points.map(p => p.x)) + Math.max(...points.map(p => p.x))) / 2;
