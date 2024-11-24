@@ -118,6 +118,7 @@ class Walls {
         this._magnetDistance = 8;
         this._pattern = null;
         this._loadPattern();
+        this._hoveredWallIndex = -1;
     }
 
     // Getters
@@ -342,20 +343,21 @@ class Walls {
             });
         }
     
-        // Create wall segments with proper intersections
+        // Create wall segments with intersecting offset lines
         for (let i = 0; i < wallSegments.length; i++) {
             const curr = wallSegments[i];
             const next = wallSegments[(i + 1) % wallSegments.length];
             
             let wallPath = new Path2D();
             
-            // Start from the current inner point
+            // Start from inner line start point
             wallPath.moveTo(curr.start.x, curr.start.y);
             
-            // Draw to the next inner point
+            // Draw inner line to end point
             wallPath.lineTo(curr.end.x, curr.end.y);
-            
-            // Calculate intersection with next outer segment
+    
+            // If this is the last segment and walls are complete,
+            // or if there's a next segment, calculate intersection
             let intersectionPoint;
             if (isComplete || i < wallSegments.length - 1) {
                 intersectionPoint = this._findIntersection(
@@ -365,24 +367,51 @@ class Walls {
                     next.offsetEnd
                 );
             } else {
+                // For incomplete walls, use the offset end point directly
                 intersectionPoint = curr.offsetEnd;
             }
             
-            // Draw to the intersection point
+            // Draw to intersection point (or offset end point for incomplete walls)
             wallPath.lineTo(intersectionPoint.x, intersectionPoint.y);
-            
-            // Draw back to the starting outer point
-            wallPath.lineTo(curr.offsetStart.x, curr.offsetStart.y);
+            curr.offsetEnd = intersectionPoint;
+            // If this is not the first segment, connect to previous wall's offseted line
+            if (i > 0) {
+                const prev = wallSegments[i - 1];
+                const prevIntersectionPoint = this._findIntersection(
+                    prev.offsetStart,
+                    prev.offsetEnd,
+                    curr.offsetStart,
+                    curr.offsetEnd
+                );
+                wallPath.lineTo(prevIntersectionPoint.x, prevIntersectionPoint.y);
+                curr.offsetStart = prevIntersectionPoint;
+            } else if (isComplete) {
+                // If this is the first segment and the polygon is closed,
+                // connect to the last wall's offseted line
+                const lastWall = wallSegments[wallSegments.length - 1];
+                const lastIntersectionPoint = this._findIntersection(
+                    lastWall.offsetStart,
+                    lastWall.offsetEnd,
+                    curr.offsetStart,
+                    curr.offsetEnd
+                );
+                wallPath.lineTo(lastIntersectionPoint.x, lastIntersectionPoint.y);
+                curr.offsetStart = lastIntersectionPoint;
+            } else {
+                // If this is the first segment and the polygon is not closed,
+                // just draw back to offset start point
+                wallPath.lineTo(curr.offsetStart.x, curr.offsetStart.y);
+            }
             
             // Close the path
             wallPath.closePath();
-            
+    
             walls.push({
                 fillPath: wallPath,
                 innerLine: { start: curr.start, end: curr.end },
                 outerLine: { 
                     start: curr.offsetStart,
-                    end: intersectionPoint
+                    end: curr.offsetEnd
                 }
             });
         }
@@ -392,7 +421,7 @@ class Walls {
             isComplete: isComplete
         };
     }
-
+    
     draw(ctx) {
         ctx.clearRect(0, 0, ctx.canvas.width, ctx.canvas.height);
         this._drawWalls(ctx, this._points);
@@ -401,86 +430,6 @@ class Walls {
     drawWithTemporaryPoints(ctx, tempPoints) {
         ctx.clearRect(0, 0, ctx.canvas.width, ctx.canvas.height);
         this._drawWalls(ctx, tempPoints);
-    }
-
-    _drawWalls(ctx, points) {
-        const wallData = this._generateThickWalls(points);
-        
-        if (wallData.segments.length === 0) return;
-    
-        // Create a compound path for all wall segments
-        const completePath = new Path2D();
-        wallData.segments.forEach(wall => {
-            completePath.addPath(wall.fillPath);
-        });
-    
-        // Fill all walls with pattern
-        if (this._pattern) {
-            ctx.fillStyle = this._pattern;
-        } else {
-            ctx.fillStyle = '#cccccc';
-        }
-        ctx.fill(completePath);
-    
-        // Draw inner contour
-        ctx.beginPath();
-        wallData.segments.forEach((wall, index) => {
-            if (index === 0) {
-                ctx.moveTo(wall.innerLine.start.x, wall.innerLine.start.y);
-            }
-            ctx.lineTo(wall.innerLine.end.x, wall.innerLine.end.y);
-        });
-        if (wallData.isComplete) {
-            ctx.closePath();
-        }
-        ctx.strokeStyle = 'black';
-        ctx.lineWidth = 1;
-        ctx.stroke();
-    
-        // Draw outer contour with intersecting lines
-        ctx.beginPath();
-        wallData.segments.forEach((wall, index) => {
-            if (index === 0) {
-                ctx.moveTo(wall.outerLine.start.x, wall.outerLine.start.y);
-            }
-            ctx.lineTo(wall.outerLine.end.x, wall.outerLine.end.y);
-        });
-        if (wallData.isComplete) {
-            ctx.closePath();
-        }
-        ctx.strokeStyle = 'black';
-        ctx.lineWidth = 1;
-        ctx.stroke();
-    
-        // Draw connecting lines between inner and outer walls at start and end
-        if (wallData.segments.length > 0) {
-            ctx.beginPath();
-            const firstWall = wallData.segments[0];
-            const lastWall = wallData.segments[wallData.segments.length - 1];
-    
-            // Draw start connection
-            ctx.moveTo(firstWall.innerLine.start.x, firstWall.innerLine.start.y);
-            ctx.lineTo(firstWall.outerLine.start.x, firstWall.outerLine.start.y);
-    
-            // Draw end connection if not complete
-            if (!wallData.isComplete) {
-                ctx.moveTo(lastWall.innerLine.end.x, lastWall.innerLine.end.y);
-                ctx.lineTo(lastWall.outerLine.end.x, lastWall.outerLine.end.y);
-            }
-            
-            ctx.strokeStyle = 'black';
-            ctx.lineWidth = 1;
-            ctx.stroke();
-        }
-    
-        // Draw points for debugging
-        points.forEach((point, index) => {
-            ctx.beginPath();
-            ctx.arc(point.x, point.y, 3, 0, Math.PI * 2);
-            ctx.fillStyle = 'red';
-            ctx.fill();
-            ctx.closePath();
-        });
     }
 
     drawWithTemporaryPoints(ctx, tempPoints) {
@@ -493,6 +442,144 @@ class Walls {
         tempWalls.draw(ctx);
     }
 
+    // Add method to check if point is near wall segment
+    isPointNearWallSegment(x, y, wallSegment) {
+        const distance = this.pointToLineDistance(
+            x, y,
+            wallSegment.innerLine.start.x,
+            wallSegment.innerLine.start.y,
+            wallSegment.innerLine.end.x,
+            wallSegment.innerLine.end.y
+        ).distance;
+        
+        return distance <= this._thickness;
+    }
+
+    // Add method to update hovered wall
+    updateHoveredWall(x, y) {
+        const wallData = this._generateThickWalls(this._points);
+        let found = false;
+        
+        for (let i = 0; i < wallData.segments.length; i++) {
+            if (this.isPointNearWallSegment(x, y, wallData.segments[i])) {
+                this._hoveredWallIndex = i;
+                found = true;
+                break;
+            }
+        }
+        
+        if (!found) {
+            this._hoveredWallIndex = -1;
+        }
+        
+        return this._hoveredWallIndex;
+    }
+
+    // Check if point is near wall segment
+    isPointNearWallSegment(x, y, wallSegment) {
+        const distance = this.pointToLineDistance(
+            x, y,
+            wallSegment.innerLine.start.x,
+            wallSegment.innerLine.start.y,
+            wallSegment.innerLine.end.x,
+            wallSegment.innerLine.end.y
+        ).distance;
+        
+        return distance <= this._thickness;
+    }
+
+    // Update hovered wall
+    updateHoveredWall(x, y) {
+        const wallData = this._generateThickWalls(this._points);
+        let found = false;
+        
+        for (let i = 0; i < wallData.segments.length; i++) {
+            if (this.isPointNearWallSegment(x, y, wallData.segments[i])) {
+                this._hoveredWallIndex = i;
+                found = true;
+                break;
+            }
+        }
+        
+        if (!found) {
+            this._hoveredWallIndex = -1;
+        }
+        
+        return this._hoveredWallIndex;
+    }
+
+    _drawWalls(ctx, points) {
+        const wallData = this._generateThickWalls(points);
+        
+        if (wallData.segments.length === 0) return;
+    
+        // Draw wall fills
+        wallData.segments.forEach((wall, index) => {
+            if (this._pattern) {
+                ctx.fillStyle = this._pattern;
+            } else {
+                ctx.fillStyle = '#cccccc';
+            }
+            
+            // If this is the hovered wall, draw highlight
+            if (index === this._hoveredWallIndex) {
+                ctx.save();
+                ctx.fillStyle = 'rgba(0, 0, 255, 0.3)'; // Blue with 30% opacity
+                ctx.fill(wall.fillPath);
+                
+                // Draw thicker blue stroke
+                ctx.strokeStyle = 'blue';
+                ctx.lineWidth = 2; // Original + 1px
+                ctx.stroke(wall.fillPath);
+                ctx.restore();
+                console.log(`Hovered wall index is ${index}`)
+            } else {
+                ctx.fill(wall.fillPath);
+            }
+        });
+    
+        // Draw inner and outer contours (only for non-highlighted walls)
+        wallData.segments.forEach((wall, index) => {
+            if (index !== this._hoveredWallIndex) {
+                // Draw inner contour
+                ctx.beginPath();
+                ctx.moveTo(wall.innerLine.start.x, wall.innerLine.start.y);
+                ctx.lineTo(wall.innerLine.end.x, wall.innerLine.end.y);
+                ctx.strokeStyle = 'black';
+                ctx.lineWidth = 1;
+                ctx.stroke();
+    
+                // Draw outer contour
+                ctx.beginPath();
+                ctx.moveTo(wall.outerLine.start.x, wall.outerLine.start.y);
+                ctx.lineTo(wall.outerLine.end.x, wall.outerLine.end.y);
+                ctx.strokeStyle = 'black';
+                ctx.lineWidth = 1;
+                ctx.stroke();
+
+                ctx.beginPath();
+                ctx.arc(wall.outerLine.start.x, wall.outerLine.start.y, 3, 0, Math.PI * 2);
+                ctx.fillStyle = 'magenta';
+                ctx.fill();
+                ctx.closePath();
+                
+                ctx.beginPath();
+                ctx.arc(wall.outerLine.end.x, wall.outerLine.end.y, 3, 0, Math.PI * 2);
+                ctx.fillStyle = 'cyan';
+                ctx.fill();
+                ctx.closePath();
+            }
+        });
+    
+        // Draw points
+        points.forEach((point, index) => {
+            ctx.beginPath();
+            ctx.arc(point.x, point.y, 3, 0, Math.PI * 2);
+            ctx.fillStyle = 'red';
+            ctx.fill();
+            ctx.closePath();
+        });
+    }
     reset() {
         this._points = [];
         this._isComplete = false;
@@ -554,16 +641,25 @@ class RoomPlanner {
 
     handleMouseMove(e) {
         const { offsetX, offsetY } = e;
-
+    
         if (this._isDraggingSofa && this._sofa) {
             this.moveSofa(offsetX, offsetY);
             this.draw();
             return;
         }
-
+    
         if (this._isDrawing) {
             const tempPoints = [...this._walls.points, this._walls.findMagnetPoint(offsetX, offsetY)];
             this.draw(tempPoints);
+        } else {
+            // Update hovered wall when not drawing
+            const previousHovered = this._walls._hoveredWallIndex;
+            const currentHovered = this._walls.updateHoveredWall(offsetX, offsetY);
+            
+            // Only redraw if the hovered wall changed
+            if (previousHovered !== currentHovered) {
+                this.draw();
+            }
         }
     }
 
