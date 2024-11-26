@@ -562,11 +562,14 @@ class Walls {
             // If this is the hovered wall, draw highlight
             if (index === this._hoveredWallIndex) {
                 ctx.save();
-                ctx.fillStyle = "rgba(0, 0, 255, 0.14)"; // Blue with 14% opacity
+                ctx.fillStyle = this._pattern;
+                ctx.fill(wall.fillPath);
+
+                ctx.fillStyle = "rgba(0, 160, 255, 0.1)"; // Blue with 10% opacity
                 ctx.fill(wall.fillPath);
 
                 // Draw thicker blue stroke
-                ctx.strokeStyle = "blue";
+                ctx.strokeStyle = "rgba(0, 160, 255)";
                 ctx.lineWidth = 2; // Original + 1px
                 ctx.stroke(wall.fillPath);
                 ctx.restore();
