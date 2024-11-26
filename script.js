@@ -139,6 +139,10 @@ class Walls {
         this._pattern = null;
         this._loadPattern();
         this._hoveredWallIndex = -1;
+        this._isEditingThickness = false;
+        this._selectedWallIndex = -1;
+        this._dragStartPoint = null;
+        this._originalThickness = null;
     }
 
     // Getters
@@ -288,12 +292,33 @@ class Walls {
         const img = new Image();
         img.src = "assets/shtrih.png";
         img.onload = () => {
+            // Create temporary canvas
             const patternCanvas = document.createElement("canvas");
             const patternContext = patternCanvas.getContext("2d");
-            patternCanvas.width = img.width;
-            patternCanvas.height = img.height;
-            patternContext.drawImage(img, 0, 0);
-            this._pattern = patternContext.createPattern(img, "repeat");
+
+            // Set the scaled dimensions
+            const scale = 0.1; // 10% scale
+            patternCanvas.width = img.width * scale;
+            patternCanvas.height = img.height * scale;
+
+            // Draw scaled image
+            patternContext.drawImage(
+                img,
+                0,
+                0,
+                img.width,
+                img.height,
+                0,
+                0,
+                patternCanvas.width,
+                patternCanvas.height
+            );
+
+            // Create pattern from scaled canvas
+            this._pattern = patternContext.createPattern(
+                patternCanvas,
+                "repeat"
+            );
         };
     }
 
@@ -313,7 +338,6 @@ class Walls {
         const normalY = -unitX;
 
         // Calculate offset points
-        const halfThickness = thickness / 2;
         return {
             start: {
                 x: start.x + normalX * thickness,
@@ -546,14 +570,21 @@ class Walls {
         // Draw inner and outer contours (only for non-highlighted walls)
         wallData.segments.forEach((wall, index) => {
             if (index !== this._hoveredWallIndex) {
-                ctx.strokeStyle = "black";
-                ctx.lineWidth = 1;
+                ctx.strokeStyle = "green";
+                ctx.lineWidth = 2;
                 // Draw inner contour
                 ctx.beginPath();
                 ctx.moveTo(wall.innerLine.start.x, wall.innerLine.start.y);
                 ctx.lineTo(wall.innerLine.end.x, wall.innerLine.end.y);
                 ctx.stroke();
 
+                if (this._isEditingThickness) {
+                    ctx.strokeStyle = "red";
+                    ctx.lineWidth = 2;
+                } else {
+                    ctx.strokeStyle = "black";
+                    ctx.lineWidth = 1;
+                }
                 // Draw outer contour
                 ctx.beginPath();
                 ctx.moveTo(wall.outerLine.start.x, wall.outerLine.start.y);
@@ -594,15 +625,23 @@ class Walls {
 }
 
 class RoomPlanner {
-    constructor(canvasId, startButtonId) {
+    constructor(canvasId, startButtonId, editButtonId) {
         this._canvas = document.getElementById(canvasId);
         this._ctx = this._canvas.getContext("2d");
         this._startButton = document.getElementById(startButtonId);
+        this._editButton = document.getElementById(editButtonId);
+        this._isEditButtonActive = false;
+        this._editButton = editButtonId
+            ? document.getElementById(editButtonId)
+            : null;
 
         this._walls = new Walls();
         this._sofa = null;
         this._isDrawing = false;
         this._isDraggingSofa = false;
+
+        this._mouseX = 0;
+        this._mouseY = 0;
         this._mouseOffset = { x: 0, y: 0 };
         this._magnetDistance = 30;
 
@@ -635,6 +674,7 @@ class RoomPlanner {
 
     initializeEventListeners() {
         this._startButton.addEventListener("click", () => this.start());
+
         this._canvas.addEventListener("mousemove", (e) =>
             this.handleMouseMove(e)
         );
@@ -649,15 +689,17 @@ class RoomPlanner {
         this._walls.reset();
         this._sofa = null;
         this._isDrawing = true;
+        this.updateEditButtonState();
         this.draw();
         this.logState("Room planning started");
     }
 
     handleMouseMove(e) {
-        const { offsetX, offsetY } = e;
+        this._mouseX = e.offsetX;
+        this._mouseY = e.offsetY;
 
         if (this._isDraggingSofa && this._sofa) {
-            this.moveSofa(offsetX, offsetY);
+            this.moveSofa(this._mouseX, this._mouseY);
             this.draw();
             return;
         }
@@ -665,15 +707,15 @@ class RoomPlanner {
         if (this._isDrawing) {
             const tempPoints = [
                 ...this._walls.points,
-                this._walls.findMagnetPoint(offsetX, offsetY),
+                this._walls.findMagnetPoint(this._mouseX, this._mouseY),
             ];
             this.draw(tempPoints);
         } else {
-            // Update hovered wall when not drawing
+            // Update hovered wall when not drawing or editing thickness
             const previousHovered = this._walls._hoveredWallIndex;
             const currentHovered = this._walls.updateHoveredWall(
-                offsetX,
-                offsetY
+                this._mouseX,
+                this._mouseY
             );
 
             // Only redraw if the hovered wall changed
@@ -708,6 +750,7 @@ class RoomPlanner {
 
         if (isComplete) {
             this._isDrawing = false;
+            this.updateEditButtonState(true);
             this._sofa = new Sofa(0, 0, 100, 50);
             this._sofa.centerIn(this._walls.points);
             this.logState("Room completed, sofa added");
@@ -716,15 +759,36 @@ class RoomPlanner {
         this.draw();
     }
 
+    updateEditButtonState(active = false) {
+        this._isEditButtonActive = active || this._walls.isComplete;
+        if (this._editButton) {
+            this._editButton.disabled = !this._isEditButtonActive;
+            this._editButton.classList.toggle(
+                "active",
+                this._isEditButtonActive
+            );
+        }
+        console.log("Edit button state:", this._isEditButtonActive);
+    }
+
     moveSofa(mouseX, mouseY) {
+        // Store original position in case we need to revert
+        const originalPosition = {
+            x: this._sofa.x,
+            y: this._sofa.y,
+            rotation: this._sofa.rotation,
+        };
+
+        // Update position based on mouse movement
         this._sofa.setPosition(
             mouseX - this._mouseOffset.x,
             mouseY - this._mouseOffset.y
         );
 
+        // Find nearest wall
         const nearest = this._walls.findNearestWall(
             this._sofa.x + this._sofa.width / 2,
-            this._sofa.y
+            this._sofa.y + this._sofa.height / 2
         );
 
         if (nearest.point && nearest.distance < this._magnetDistance) {
@@ -733,20 +797,115 @@ class RoomPlanner {
                 y: Math.sin(nearest.angle + Math.PI / 2),
             };
 
-            this._sofa.setPosition(
-                nearest.point.x -
+            // Calculate new position aligned with wall
+            const newPosition = {
+                x:
+                    nearest.point.x -
                     this._sofa.width / 2 +
                     (wallNormal.x * this._sofa.height) / 2,
-                nearest.point.y -
+                y:
+                    nearest.point.y -
                     this._sofa.height / 2 +
-                    (wallNormal.y * this._sofa.height) / 2
-            );
+                    (wallNormal.y * this._sofa.height) / 2,
+            };
+
+            // Temporarily set position and rotation
+            this._sofa.setPosition(newPosition.x, newPosition.y);
             this._sofa.setRotation(nearest.angle);
 
-            this.logState(`Sofa snapped to wall ${nearest.wallIndex}`);
+            // Check if sofa collides with any walls except the current one
+            if (this.checkSofaWallCollision(nearest.wallIndex)) {
+                // If collision detected, revert to original position
+                this._sofa.setPosition(originalPosition.x, originalPosition.y);
+                this._sofa.setRotation(originalPosition.rotation);
+            }
+
+            this.logState(`Sofa interaction with wall ${nearest.wallIndex}`);
         } else {
+            // When not near a wall, keep original rotation
             this._sofa.setRotation(0);
+
+            // Check if new position causes collision with any wall
+            if (this.checkSofaWallCollision()) {
+                // If collision detected, revert to original position
+                this._sofa.setPosition(originalPosition.x, originalPosition.y);
+                this._sofa.setRotation(originalPosition.rotation);
+            }
         }
+    }
+
+    // Add this new method to check for collisions between sofa and walls
+    checkSofaWallCollision(currentWallIndex = -1) {
+        // Get sofa corners considering rotation
+        const corners = this.getSofaCorners();
+
+        // Check if any corner is inside walls
+        for (let i = 0; i < this._walls.points.length - 1; i++) {
+            // Skip the wall that sofa is currently snapped to
+            if (i === currentWallIndex) continue;
+
+            const wallStart = this._walls.points[i];
+            const wallEnd = this._walls.points[i + 1];
+
+            // Check each sofa edge against wall
+            for (let j = 0; j < corners.length; j++) {
+                const nextJ = (j + 1) % corners.length;
+                if (
+                    this.lineIntersectsLine(
+                        corners[j],
+                        corners[nextJ],
+                        wallStart,
+                        wallEnd
+                    )
+                ) {
+                    return true; // Collision detected
+                }
+            }
+        }
+        return false;
+    }
+
+    // Helper method to get sofa corners considering rotation
+    getSofaCorners() {
+        const centerX = this._sofa.x + this._sofa.width / 2;
+        const centerY = this._sofa.y + this._sofa.height / 2;
+        const corners = [
+            { x: -this._sofa.width / 2, y: -this._sofa.height / 2 },
+            { x: this._sofa.width / 2, y: -this._sofa.height / 2 },
+            { x: this._sofa.width / 2, y: this._sofa.height / 2 },
+            { x: -this._sofa.width / 2, y: this._sofa.height / 2 },
+        ];
+
+        // Apply rotation and translation
+        return corners.map((corner) => {
+            const rotatedX =
+                corner.x * Math.cos(this._sofa.rotation) -
+                corner.y * Math.sin(this._sofa.rotation);
+            const rotatedY =
+                corner.x * Math.sin(this._sofa.rotation) +
+                corner.y * Math.cos(this._sofa.rotation);
+            return {
+                x: rotatedX + centerX,
+                y: rotatedY + centerY,
+            };
+        });
+    }
+
+    // Helper method to check if two line segments intersect
+    lineIntersectsLine(p1, p2, p3, p4) {
+        const denominator =
+            (p4.y - p3.y) * (p2.x - p1.x) - (p4.x - p3.x) * (p2.y - p1.y);
+
+        if (denominator === 0) return false;
+
+        const ua =
+            ((p4.x - p3.x) * (p1.y - p3.y) - (p4.y - p3.y) * (p1.x - p3.x)) /
+            denominator;
+        const ub =
+            ((p2.x - p1.x) * (p1.y - p3.y) - (p2.y - p1.y) * (p1.x - p3.x)) /
+            denominator;
+
+        return ua >= 0 && ua <= 1 && ub >= 0 && ub <= 1;
     }
 
     draw(tempPoints = null) {
@@ -803,4 +962,4 @@ class RoomPlanner {
 }
 
 // Initialize the application
-const roomPlanner = new RoomPlanner("roomCanvas", "start");
+const roomPlanner = new RoomPlanner("roomCanvas", "start", "edit");
