@@ -1,24 +1,55 @@
 <!DOCTYPE html>
 <html lang="en">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Рисование комнаты</title>
-    <style>
-        canvas {
-            border: 1px solid black;
-            display: block;
-            margin: 20px auto;
-        }
-        button {
-            display: block;
-            margin: 20px auto;
-        }
-    </style>
-</head>
-<body>
-    <button id="start">Начать</button>
-    <canvas id="roomCanvas" width="800" height="600"></canvas>
-    <script src="script.js"></script>
-</body>
+    <head>
+        <meta charset="UTF-8" />
+        <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+        <title>Рисование комнаты</title>
+        <style>
+            canvas {
+                border: 1px solid black;
+                display: block;
+                margin: 20px auto;
+            }
+            #start {
+                margin-left: 0px;
+                padding: 5px 10px;
+                cursor: pointer;
+
+                display: flex;
+                gap: 10px;
+                align-items: center;
+            }
+            .thickness-control {
+                margin: 10px 0;
+                display: flex;
+                gap: 10px;
+                align-items: center;
+            }
+            #thicknessInput {
+                width: 120px;
+                padding: 5px;
+            }
+            #acceptThicknessInput {
+                padding: 5px 10px;
+                cursor: pointer;
+            }
+        </style>
+    </head>
+    <body>
+        <button id="start">Start</button>
+        <div class="thickness-control">
+            <input
+                type="number"
+                id="thicknessInput"
+                placeholder="Walls thickness"
+                min="1"
+                max="100"
+                value="20"
+            />
+            <button id="acceptThicknessInput" disabled>Accept</button>
+        </div>
+
+        <canvas id="roomCanvas" width="800" height="600"></canvas>
+        <script src="script.js"></script>
+    </body>
 </html>
