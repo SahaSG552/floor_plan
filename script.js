@@ -493,6 +493,15 @@ class Walls {
         };
     }
 
+    updateThickness(newThickness) {
+        const thickness = parseInt(newThickness);
+        if (!isNaN(thickness) && thickness > 0 && thickness <= 100) {
+            this._thickness = thickness;
+            return true;
+        }
+        return false;
+    }
+
     draw(ctx) {
         ctx.clearRect(0, 0, ctx.canvas.width, ctx.canvas.height);
         this._drawWalls(ctx, this._points);
@@ -645,6 +654,16 @@ class RoomPlanner {
         this._mouseOffset = { x: 0, y: 0 };
         this._magnetDistance = 30;
 
+        this._thicknessInput = document.getElementById("thicknessInput");
+        this._acceptThicknessButton = document.getElementById(
+            "acceptThicknessInput"
+        );
+        // Initialize thickness input with current value
+        this._thicknessInput.value = this._walls.thickness;
+
+        // Add thickness control listeners
+        this.initializeThicknessControls();
+
         this.initializeEventListeners();
         this.logState("RoomPlanner initialized");
     }
@@ -683,6 +702,34 @@ class RoomPlanner {
         );
         this._canvas.addEventListener("mouseup", () => this.handleMouseUp());
         this._canvas.addEventListener("click", (e) => this.handleClick(e));
+    }
+
+    initializeThicknessControls() {
+        // Add event listener for the Accept button
+        this._acceptThicknessButton.addEventListener("click", () => {
+            this.handleThicknessChange();
+        });
+
+        // Add event listener for Enter key in input field
+        this._thicknessInput.addEventListener("keypress", (e) => {
+            if (e.key === "Enter") {
+                this.handleThicknessChange();
+            }
+        });
+    }
+
+    handleThicknessChange() {
+        const newThickness = this._thicknessInput.value;
+        if (this._walls.updateThickness(newThickness)) {
+            // Redraw the walls with new thickness
+            this.draw();
+            console.log(`Wall thickness updated to ${newThickness}`);
+        } else {
+            // Reset input to current thickness if invalid value
+            this._thicknessInput.value = this._walls.thickness;
+            console.log("Invalid thickness value");
+            alert("Please enter a valid thickness value between 1 and 100");
+        }
     }
 
     start() {
@@ -813,7 +860,7 @@ class RoomPlanner {
             this._sofa.setPosition(newPosition.x, newPosition.y);
             this._sofa.setRotation(nearest.angle);
 
-            // Check if sofa collides with any walls except the current one
+            // Check if sofa collides with neighboring walls
             if (this.checkSofaWallCollision(nearest.wallIndex)) {
                 // If collision detected, revert to original position
                 this._sofa.setPosition(originalPosition.x, originalPosition.y);
@@ -825,7 +872,7 @@ class RoomPlanner {
             // When not near a wall, keep original rotation
             this._sofa.setRotation(0);
 
-            // Check if new position causes collision with any wall
+            // Check collision with all walls when not snapped
             if (this.checkSofaWallCollision()) {
                 // If collision detected, revert to original position
                 this._sofa.setPosition(originalPosition.x, originalPosition.y);
@@ -834,31 +881,59 @@ class RoomPlanner {
         }
     }
 
-    // Add this new method to check for collisions between sofa and walls
     checkSofaWallCollision(currentWallIndex = -1) {
-        // Get sofa corners considering rotation
         const corners = this.getSofaCorners();
+        const totalWalls = this._walls.points.length - 1;
 
-        // Check if any corner is inside walls
-        for (let i = 0; i < this._walls.points.length - 1; i++) {
-            // Skip the wall that sofa is currently snapped to
-            if (i === currentWallIndex) continue;
+        // If currentWallIndex is provided, only check neighboring walls
+        if (currentWallIndex !== -1) {
+            const wallsToCheck = new Set([
+                (currentWallIndex - 1 + totalWalls) % totalWalls, // Previous wall
+                currentWallIndex, // Current wall
+                (currentWallIndex + 1) % totalWalls, // Next wall
+            ]);
 
-            const wallStart = this._walls.points[i];
-            const wallEnd = this._walls.points[i + 1];
+            // Check collision only with neighboring walls
+            for (const wallIndex of wallsToCheck) {
+                // Skip the wall that sofa is currently snapped to
+                if (wallIndex === currentWallIndex) continue;
 
-            // Check each sofa edge against wall
-            for (let j = 0; j < corners.length; j++) {
-                const nextJ = (j + 1) % corners.length;
-                if (
-                    this.lineIntersectsLine(
-                        corners[j],
-                        corners[nextJ],
-                        wallStart,
-                        wallEnd
-                    )
-                ) {
-                    return true; // Collision detected
+                const wallStart = this._walls.points[wallIndex];
+                const wallEnd = this._walls.points[wallIndex + 1];
+
+                // Check each sofa edge against wall
+                for (let j = 0; j < corners.length; j++) {
+                    const nextJ = (j + 1) % corners.length;
+                    if (
+                        this.lineIntersectsLine(
+                            corners[j],
+                            corners[nextJ],
+                            wallStart,
+                            wallEnd
+                        )
+                    ) {
+                        return true; // Collision detected
+                    }
+                }
+            }
+        } else {
+            // When not snapped to any wall, check all walls
+            for (let i = 0; i < totalWalls; i++) {
+                const wallStart = this._walls.points[i];
+                const wallEnd = this._walls.points[i + 1];
+
+                for (let j = 0; j < corners.length; j++) {
+                    const nextJ = (j + 1) % corners.length;
+                    if (
+                        this.lineIntersectsLine(
+                            corners[j],
+                            corners[nextJ],
+                            wallStart,
+                            wallEnd
+                        )
+                    ) {
+                        return true; // Collision detected
+                    }
                 }
             }
         }
@@ -962,4 +1037,8 @@ class RoomPlanner {
 }
 
 // Initialize the application
-const roomPlanner = new RoomPlanner("roomCanvas", "start", "edit");
+const roomPlanner = new RoomPlanner(
+    "roomCanvas",
+    "start",
+    "acceptThicknessInput"
+);
