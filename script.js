@@ -143,6 +143,7 @@ class Walls {
         this._selectedWallIndex = -1;
         this._dragStartPoint = null;
         this._originalThickness = null;
+        this._originalWallPoints = null;
     }
 
     // Getters
@@ -209,6 +210,78 @@ class Walls {
             });
         }
         return lengths;
+    }
+
+    get selectedWallIndex() {
+        return this._selectedWallIndex;
+    }
+
+    selectWall(index) {
+        this._selectedWallIndex = index;
+        this._dragStartPoint = null;
+        this._originalWallPoints = this._points.slice();
+        this.logState("Wall selected");
+    }
+
+    deselectWall() {
+        this._selectedWallIndex = -1;
+        this._dragStartPoint = null;
+        this._originalWallPoints = null;
+        this.logState("Wall deselected");
+    }
+
+    startDragging(point) {
+        this._dragStartPoint = point;
+        this.logState("Started dragging wall");
+    }
+
+    stopDragging() {
+        this._dragStartPoint = null;
+        this.logState("Stopped dragging wall");
+    }
+
+    updateWallPosition(x, y) {
+        if (this._selectedWallIndex !== -1 && this._dragStartPoint) {
+            const start = this._points[this._selectedWallIndex];
+            const end =
+                this._points[
+                    (this._selectedWallIndex + 1) % this._points.length
+                ];
+
+            // Calculate the wall's direction vector
+            const dx = end.x - start.x;
+            const dy = end.y - start.y;
+            const length = Math.sqrt(dx * dx + dy * dy);
+            const directionX = dx / length;
+            const directionY = dy / length;
+
+            // Calculate the wall's normal vector
+            const normalX = -directionY;
+            const normalY = directionX;
+
+            // Calculate the vector from the start of the wall to the mouse position
+            const mouseVectorX = x - start.x;
+            const mouseVectorY = y - start.y;
+
+            // Calculate the dot product of the mouse vector and the wall's normal vector
+            const dotProduct = mouseVectorX * normalX + mouseVectorY * normalY;
+
+            // Calculate the new position of the wall
+            const newX = start.x + dotProduct * normalX;
+            const newY = start.y + dotProduct * normalY;
+
+            // Update the selected wall position
+            this._points[this._selectedWallIndex].x = newX;
+            this._points[this._selectedWallIndex].y = newY;
+
+            // Update the next wall position
+            const nextIndex =
+                (this._selectedWallIndex + 1) % this._points.length;
+            this._points[nextIndex].x = newX + dx;
+            this._points[nextIndex].y = newY + dy;
+
+            this.logState("Wall position updated");
+        }
     }
 
     findMagnetPoint(x, y) {
@@ -577,6 +650,19 @@ class Walls {
             } else {
                 ctx.fill(wall.fillPath);
             }
+
+            // Draw selected wall differently
+            if (this._selectedWallIndex !== -1) {
+                const selectedWall = wallData.segments[this._selectedWallIndex];
+                ctx.save();
+                ctx.fillStyle = "rgba(0, 160, 255, 0.1)"; // Blue with 10% opacity
+                ctx.fill(selectedWall.fillPath);
+
+                ctx.strokeStyle = "rgba(0, 160, 255)";
+                ctx.lineWidth = 4; // Thicker stroke for selected wall
+                ctx.stroke(selectedWall.fillPath);
+                ctx.restore();
+            }
         });
 
         // Draw inner and outer contours (only for non-highlighted walls)
@@ -666,7 +752,13 @@ class RoomPlanner {
 
         // Add thickness control listeners
         this.initializeThicknessControls();
-
+        this._canvas.addEventListener("mousedown", (e) =>
+            this.handleMouseDown(e)
+        );
+        this._canvas.addEventListener("mousemove", (e) =>
+            this.handleMouseMove(e)
+        );
+        this._canvas.addEventListener("mouseup", () => this.handleMouseUp());
         this.initializeEventListeners();
         this.logState("RoomPlanner initialized");
     }
@@ -748,7 +840,13 @@ class RoomPlanner {
         this._mouseX = e.offsetX;
         this._mouseY = e.offsetY;
 
-        if (this._isDraggingSofa && this._sofa) {
+        if (
+            this._walls.selectedWallIndex !== -1 &&
+            this._walls._dragStartPoint
+        ) {
+            this._walls.updateWallPosition(e.offsetX, e.offsetY);
+            this.draw();
+        } else if (this._isDraggingSofa && this._sofa) {
             this.moveSofa(this._mouseX, this._mouseY);
             this.draw();
             return;
@@ -784,10 +882,25 @@ class RoomPlanner {
             };
             this.logState("Started dragging sofa");
         }
+        if (this._walls.isComplete) {
+            // Check if user clicked on a wall
+            const wallIndex = this._walls.updateHoveredWall(
+                e.offsetX,
+                e.offsetY
+            );
+            if (wallIndex !== -1) {
+                this._walls.selectWall(wallIndex);
+                this._walls.startDragging({ x: e.offsetX, y: e.offsetY });
+            }
+        }
     }
 
     handleMouseUp() {
-        if (this._isDraggingSofa) {
+        if (this._walls.selectedWallIndex !== -1) {
+            this._walls.stopDragging();
+            this._walls.deselectWall();
+            this.draw();
+        } else if (this._isDraggingSofa) {
             this._isDraggingSofa = false;
             this.logState("Stopped dragging sofa");
         }
