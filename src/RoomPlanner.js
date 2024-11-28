@@ -214,32 +214,67 @@ class RoomPlanner {
     }
 
     moveSofa(mouseX, mouseY) {
-        // Store original position in case we need to revert
         const originalPosition = {
             x: this._sofa.x,
             y: this._sofa.y,
             rotation: this._sofa.rotation,
         };
 
-        // Update position based on mouse movement
         this._sofa.setPosition(
             mouseX - this._mouseOffset.x,
             mouseY - this._mouseOffset.y
         );
 
-        // Find nearest wall
         const nearest = this._walls.findNearestWall(
             this._sofa.x + this._sofa.width / 2,
             this._sofa.y + this._sofa.height / 2
         );
 
         if (nearest.point && nearest.distance < this._magnetDistance) {
-            const wallNormal = {
-                x: Math.cos(nearest.angle + Math.PI / 2),
-                y: Math.sin(nearest.angle + Math.PI / 2),
+            const wallStart = this._walls.points[nearest.wallIndex];
+            const wallEnd =
+                this._walls.points[
+                    (nearest.wallIndex + 1) % this._walls.points.length
+                ];
+
+            // Calculate wall vector and normal
+            const wallVectorX = wallEnd.x - wallStart.x;
+            const wallVectorY = wallEnd.y - wallStart.y;
+
+            // Calculate both possible normals
+            const normal1 = { x: -wallVectorY, y: wallVectorX };
+            const normal2 = { x: wallVectorY, y: -wallVectorX };
+
+            // Normalize both normals
+            const length1 = Math.sqrt(
+                normal1.x * normal1.x + normal1.y * normal1.y
+            );
+            normal1.x /= length1;
+            normal1.y /= length1;
+
+            const length2 = Math.sqrt(
+                normal2.x * normal2.x + normal2.y * normal2.y
+            );
+            normal2.x /= length2;
+            normal2.y /= length2;
+
+            // Test points along both normals
+            const testDistance = 10; // Small distance to test
+            const testPoint1 = {
+                x: nearest.point.x + normal1.x * testDistance,
+                y: nearest.point.y + normal1.y * testDistance,
+            };
+            const testPoint2 = {
+                x: nearest.point.x + normal2.x * testDistance,
+                y: nearest.point.y + normal2.y * testDistance,
             };
 
-            // Calculate new position aligned with wall
+            // Use the normal that points inside the polygon
+            const wallNormal = this.isPointInPolygon(testPoint1)
+                ? normal1
+                : normal2;
+
+            // Calculate new position
             const newPosition = {
                 x:
                     nearest.point.x -
@@ -251,29 +286,45 @@ class RoomPlanner {
                     (wallNormal.y * this._sofa.height) / 2,
             };
 
-            // Temporarily set position and rotation
-            this._sofa.setPosition(newPosition.x, newPosition.y);
-            this._sofa.setRotation(nearest.angle);
+            // Calculate rotation angle
+            const rotation =
+                Math.atan2(wallNormal.y, wallNormal.x) - Math.PI / 2;
 
-            // Check if sofa collides with neighboring walls
+            this._sofa.setPosition(newPosition.x, newPosition.y);
+            this._sofa.setRotation(rotation);
+
             if (this.checkSofaWallCollision(nearest.wallIndex)) {
-                // If collision detected, revert to original position
                 this._sofa.setPosition(originalPosition.x, originalPosition.y);
                 this._sofa.setRotation(originalPosition.rotation);
             }
-
-            this.logState(`Sofa interaction with wall ${nearest.wallIndex}`);
         } else {
-            // When not near a wall, keep original rotation
             this._sofa.setRotation(0);
-
-            // Check collision with all walls when not snapped
             if (this.checkSofaWallCollision()) {
-                // If collision detected, revert to original position
                 this._sofa.setPosition(originalPosition.x, originalPosition.y);
                 this._sofa.setRotation(originalPosition.rotation);
             }
         }
+    }
+
+    // Add this method to check if a point is inside the polygon
+    isPointInPolygon(point) {
+        const polygon = this._walls.points;
+        let inside = false;
+
+        for (let i = 0, j = polygon.length - 1; i < polygon.length; j = i++) {
+            const xi = polygon[i].x;
+            const yi = polygon[i].y;
+            const xj = polygon[j].x;
+            const yj = polygon[j].y;
+
+            const intersect =
+                yi > point.y !== yj > point.y &&
+                point.x < ((xj - xi) * (point.y - yi)) / (yj - yi) + xi;
+
+            if (intersect) inside = !inside;
+        }
+
+        return inside;
     }
 
     checkSofaWallCollision(currentWallIndex = -1) {
