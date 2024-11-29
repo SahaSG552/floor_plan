@@ -306,27 +306,6 @@ class RoomPlanner {
         }
     }
 
-    // Add this method to check if a point is inside the polygon
-    isPointInPolygon(point) {
-        const polygon = this._walls.points;
-        let inside = false;
-
-        for (let i = 0, j = polygon.length - 1; i < polygon.length; j = i++) {
-            const xi = polygon[i].x;
-            const yi = polygon[i].y;
-            const xj = polygon[j].x;
-            const yj = polygon[j].y;
-
-            const intersect =
-                yi > point.y !== yj > point.y &&
-                point.x < ((xj - xi) * (point.y - yi)) / (yj - yi) + xi;
-
-            if (intersect) inside = !inside;
-        }
-
-        return inside;
-    }
-
     checkSofaWallCollision(currentWallIndex = -1) {
         const corners = this.getSofaCorners();
         const totalWalls = this._walls.points.length - 1;
@@ -386,6 +365,26 @@ class RoomPlanner {
         return false;
     }
 
+    // Add this method to check if a point is inside the polygon
+    isPointInPolygon(point) {
+        const polygon = this._walls.points;
+        let inside = false;
+
+        for (let i = 0, j = polygon.length - 1; i < polygon.length; j = i++) {
+            const xi = polygon[i].x;
+            const yi = polygon[i].y;
+            const xj = polygon[j].x;
+            const yj = polygon[j].y;
+
+            const intersect =
+                yi > point.y !== yj > point.y &&
+                point.x < ((xj - xi) * (point.y - yi)) / (yj - yi) + xi;
+
+            if (intersect) inside = !inside;
+        }
+
+        return inside;
+    }
     // Helper method to get sofa corners considering rotation
     getSofaCorners() {
         const centerX = this._sofa.x + this._sofa.width / 2;
