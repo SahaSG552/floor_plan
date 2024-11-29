@@ -617,7 +617,7 @@ class Walls {
         return distance <= this._thickness;
     }
 
-    // Add method to update hovered wall
+    // Update hovered wall
     updateHoveredWall(x, y) {
         const wallData = this._generateThickWalls(this._points);
         let found = false;
@@ -1029,9 +1029,20 @@ class RoomPlanner {
             const rotation =
                 Math.atan2(wallNormal.y, wallNormal.x) - Math.PI / 2;
 
-            this._sofa.setPosition(newPosition.x, newPosition.y);
-            this._sofa.setRotation(rotation);
+            let normalizedRotation = rotation;
 
+            // Normalize the rotation to be between 0 and 2π
+            while (normalizedRotation < 0) {
+                normalizedRotation += Math.PI * 2;
+            }
+            while (normalizedRotation >= Math.PI * 2) {
+                normalizedRotation -= Math.PI * 2;
+            }
+
+            this._sofa.setPosition(newPosition.x, newPosition.y);
+            this._sofa.setRotation(normalizedRotation);
+
+            // Check for collisions only with the current wall and its neighbors
             if (this.checkSofaWallCollision(nearest.wallIndex)) {
                 this._sofa.setPosition(originalPosition.x, originalPosition.y);
                 this._sofa.setRotation(originalPosition.rotation);
@@ -1045,7 +1056,33 @@ class RoomPlanner {
         }
     }
 
-    // Add this method to check if a point is inside the polygon
+    //*TODO Debug mode for visual collision detection
+    checkSofaWallCollision() {
+        const corners = this.getSofaCorners();
+        const totalWalls = this._walls.points.length - 1;
+
+        for (let i = 0; i < totalWalls; i++) {
+            const wallStart = this._walls.points[i];
+            const wallEnd = this._walls.points[i + 1];
+
+            for (let j = 0; j < corners.length; j++) {
+                const nextJ = (j + 1) % corners.length;
+                if (
+                    this.lineIntersectsLine(
+                        corners[j],
+                        corners[nextJ],
+                        wallStart,
+                        wallEnd
+                    )
+                ) {
+                    return true; // Collision detected
+                }
+            }
+        }
+        return false;
+    }
+
+    // Check if a point is inside the polygon
     isPointInPolygon(point) {
         const polygon = this._walls.points;
         let inside = false;
@@ -1065,66 +1102,6 @@ class RoomPlanner {
 
         return inside;
     }
-
-    checkSofaWallCollision(currentWallIndex = -1) {
-        const corners = this.getSofaCorners();
-        const totalWalls = this._walls.points.length - 1;
-
-        // If currentWallIndex is provided, only check neighboring walls
-        if (currentWallIndex !== -1) {
-            const wallsToCheck = new Set([
-                (currentWallIndex - 1 + totalWalls) % totalWalls, // Previous wall
-                currentWallIndex, // Current wall
-                (currentWallIndex + 1) % totalWalls, // Next wall
-            ]);
-
-            // Check collision only with neighboring walls
-            for (const wallIndex of wallsToCheck) {
-                // Skip the wall that sofa is currently snapped to
-                if (wallIndex === currentWallIndex) continue;
-
-                const wallStart = this._walls.points[wallIndex];
-                const wallEnd = this._walls.points[wallIndex + 1];
-
-                // Check each sofa edge against wall
-                for (let j = 0; j < corners.length; j++) {
-                    const nextJ = (j + 1) % corners.length;
-                    if (
-                        this.lineIntersectsLine(
-                            corners[j],
-                            corners[nextJ],
-                            wallStart,
-                            wallEnd
-                        )
-                    ) {
-                        return true; // Collision detected
-                    }
-                }
-            }
-        } else {
-            // When not snapped to any wall, check all walls
-            for (let i = 0; i < totalWalls; i++) {
-                const wallStart = this._walls.points[i];
-                const wallEnd = this._walls.points[i + 1];
-
-                for (let j = 0; j < corners.length; j++) {
-                    const nextJ = (j + 1) % corners.length;
-                    if (
-                        this.lineIntersectsLine(
-                            corners[j],
-                            corners[nextJ],
-                            wallStart,
-                            wallEnd
-                        )
-                    ) {
-                        return true; // Collision detected
-                    }
-                }
-            }
-        }
-        return false;
-    }
-
     // Helper method to get sofa corners considering rotation
     getSofaCorners() {
         const centerX = this._sofa.x + this._sofa.width / 2;
@@ -1155,8 +1132,9 @@ class RoomPlanner {
     lineIntersectsLine(p1, p2, p3, p4) {
         const denominator =
             (p4.y - p3.y) * (p2.x - p1.x) - (p4.x - p3.x) * (p2.y - p1.y);
+        const EPSILON = 0.001; // Small tolerance value
 
-        if (denominator === 0) return false;
+        if (Math.abs(denominator) < EPSILON) return false;
 
         const ua =
             ((p4.x - p3.x) * (p1.y - p3.y) - (p4.y - p3.y) * (p1.x - p3.x)) /
@@ -1165,7 +1143,9 @@ class RoomPlanner {
             ((p2.x - p1.x) * (p1.y - p3.y) - (p2.y - p1.y) * (p1.x - p3.x)) /
             denominator;
 
-        return ua >= 0 && ua <= 1 && ub >= 0 && ub <= 1;
+        return (
+            ua > EPSILON && ua < 1 - EPSILON && ub > EPSILON && ub < 1 - EPSILON
+        );
     }
 
     draw(tempPoints = null) {
