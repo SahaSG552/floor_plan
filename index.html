@@ -10,11 +10,18 @@
                 display: block;
                 margin: 20px auto;
             }
-            #start {
+            #start,
+            #innerWall {
                 margin-left: 0px;
                 padding: 5px 10px;
                 cursor: pointer;
 
+                display: flex;
+                gap: 10px;
+                align-items: center;
+            }
+            .innerWall {
+                margin: 10px 0;
                 display: flex;
                 gap: 10px;
                 align-items: center;
@@ -36,7 +43,16 @@
         </style>
     </head>
     <body>
-        <button id="start">Start</button>
+        <button id="start">Start Drawing Walls</button>
+
+        <div class="innerWall">
+            <button id="innerWallBtn" disabled >Inner Wall</button>
+            <div class="innerWallAlignment" style="display: inline-block;">
+                <button id="innerWallAlignmentLeft" style="color: green;" disabled>|&#160&#160</button>
+                <button id="innerWallAlignmentCenter" style="color: orange;" disabled>&#160|&#160</button>
+                <button id="innerWallAlignmentRight" style="color: rgb(100, 0, 40);" disabled>&#160&#160|</button>
+            </div>
+        </div>
         <div class="thickness-control">
             <input
                 type="number"
@@ -50,7 +66,7 @@
         </div>
 
         <canvas id="roomCanvas" width="800" height="600"></canvas>
-        <!-- <script src="script.js"></script> -->
-        <script type="module" src="src/index.js"></script>
+        <script src="script.js"></script>
+        <!-- <script type="module" src="src/index.js"></script> -->
     </body>
 </html>
