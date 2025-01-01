@@ -289,7 +289,8 @@ class Walls {
 
     findMagnetPoint(x, y) {
         let magnetPoint = { x, y };
-        let minDistance = this._magnetDistance;
+        let minDistance = Infinity;
+        let foundMagnet = false;
 
         // Helper function to calculate distance between points
         const getDistance = (p1, p2) => {
@@ -298,23 +299,27 @@ class Walls {
             );
         };
 
-        // Check all wall segments (outer and inner)
+        // Function to check wall segments (both outer and inner)
         const checkWallSegment = (start, end) => {
-            // Check endpoints
+            // Check endpoints first (highest priority)
             const startDist = getDistance({ x, y }, start);
             const endDist = getDistance({ x, y }, end);
 
-            // Check if point is near endpoints
-            if (startDist < minDistance) {
+            if (startDist < this._magnetDistance && startDist < minDistance) {
                 magnetPoint = { ...start };
                 minDistance = startDist;
-            }
-            if (endDist < minDistance) {
-                magnetPoint = { ...end };
-                minDistance = endDist;
+                foundMagnet = true;
+                return true;
             }
 
-            // Check alignment line
+            if (endDist < this._magnetDistance && endDist < minDistance) {
+                magnetPoint = { ...end };
+                minDistance = endDist;
+                foundMagnet = true;
+                return true;
+            }
+
+            // Check wall alignment lines
             const result = this.pointToLineDistance(
                 x,
                 y,
@@ -324,13 +329,18 @@ class Walls {
                 end.y
             );
             if (
-                result.distance < minDistance &&
+                result.distance < this._magnetDistance &&
                 result.param >= 0 &&
                 result.param <= 1
             ) {
-                magnetPoint = result.closestPoint;
-                minDistance = result.distance;
+                if (result.distance < minDistance) {
+                    magnetPoint = result.closestPoint;
+                    minDistance = result.distance;
+                    foundMagnet = true;
+                    return true;
+                }
             }
+            return false;
         };
 
         // Check outer walls
@@ -345,7 +355,54 @@ class Walls {
             });
         }
 
-        return magnetPoint;
+        // If no magnet point was found within magnet distance, return original point
+        return foundMagnet ? magnetPoint : { x, y };
+    }
+
+    // Add this new method to generate alignment lines
+    _generateAlignmentLines(start, end) {
+        const lines = [];
+
+        // Add parallel lines (inside and outside)
+        const dx = end.x - start.x;
+        const dy = end.y - start.y;
+        const length = Math.sqrt(dx * dx + dy * dy);
+        const unitX = dx / length;
+        const unitY = dy / length;
+
+        // Perpendicular vector
+        const perpX = -unitY;
+        const perpY = unitX;
+
+        // Generate parallel lines at different offsets
+        [-this._thickness, 0, this._thickness].forEach((offset) => {
+            lines.push({
+                start: {
+                    x: start.x + perpX * offset,
+                    y: start.y + perpY * offset,
+                },
+                end: {
+                    x: end.x + perpX * offset,
+                    y: end.y + perpY * offset,
+                },
+            });
+        });
+
+        // Add perpendicular lines at endpoints
+        [start, end].forEach((point) => {
+            lines.push({
+                start: {
+                    x: point.x - perpX * this._thickness,
+                    y: point.y - perpY * this._thickness,
+                },
+                end: {
+                    x: point.x + perpX * this._thickness,
+                    y: point.y + perpY * this._thickness,
+                },
+            });
+        });
+
+        return lines;
     }
 
     findNearestWall(x, y) {
@@ -387,28 +444,43 @@ class Walls {
         let minDistance = Infinity;
         let attachedWallIndex = -1;
         let intersectionParam = 0;
+        let isInnerWall = false;
 
-        // Check intersections with outer walls
-        for (let i = 0; i < this._points.length - 1; i++) {
-            const wallStart = this._points[i];
-            const wallEnd = this._points[i + 1];
-
+        // Function to check intersection with a wall segment
+        const checkIntersection = (
+            wallStart,
+            wallEnd,
+            index,
+            isInner = false
+        ) => {
             const result = this.lineIntersection(
                 start,
                 end,
                 wallStart,
                 wallEnd
             );
-
             if (result && result.onLine1 && result.onLine2) {
                 const dist = Math.hypot(result.x - start.x, result.y - start.y);
                 if (dist < minDistance) {
                     minDistance = dist;
                     intersection = { x: result.x, y: result.y };
-                    attachedWallIndex = i;
+                    attachedWallIndex = index;
                     intersectionParam = result.param2;
+                    isInnerWall = isInner;
                 }
             }
+        };
+
+        // Check outer walls
+        for (let i = 0; i < this._points.length - 1; i++) {
+            checkIntersection(this._points[i], this._points[i + 1], i);
+        }
+
+        // Check inner walls
+        if (this._innerWalls) {
+            this._innerWalls.forEach((wall, index) => {
+                checkIntersection(wall.start, wall.end, index, true);
+            });
         }
 
         return intersection
@@ -416,6 +488,7 @@ class Walls {
                   point: intersection,
                   wallIndex: attachedWallIndex,
                   param: intersectionParam,
+                  isInnerWall: isInnerWall,
               }
             : null;
     }
@@ -710,6 +783,18 @@ class Walls {
     }
 
     addInnerWall(startPoint, endPoint, alignment) {
+        // Store the original points even if they're outside
+        const wallSegment = {
+            start: { ...startPoint },
+            end: { ...endPoint },
+            isInner: true,
+            alignment: alignment,
+            attachments: {
+                start: null,
+                end: null,
+            },
+        };
+
         // Find intersections with outer walls
         const startIntersection = this.findWallIntersection(
             startPoint,
@@ -717,26 +802,20 @@ class Walls {
         );
         const endIntersection = this.findWallIntersection(endPoint, startPoint);
 
-        const wallSegment = {
-            start: startIntersection ? startIntersection.point : startPoint,
-            end: endIntersection ? endIntersection.point : endPoint,
-            isInner: true,
-            alignment: alignment,
-            attachments: {
-                start: startIntersection
-                    ? {
-                          wallIndex: startIntersection.wallIndex,
-                          param: startIntersection.param,
-                      }
-                    : null,
-                end: endIntersection
-                    ? {
-                          wallIndex: endIntersection.wallIndex,
-                          param: endIntersection.param,
-                      }
-                    : null,
-            },
-        };
+        // Only update points if intersections are found
+        if (startIntersection) {
+            wallSegment.attachments.start = {
+                wallIndex: startIntersection.wallIndex,
+                param: startIntersection.param,
+            };
+        }
+
+        if (endIntersection) {
+            wallSegment.attachments.end = {
+                wallIndex: endIntersection.wallIndex,
+                param: endIntersection.param,
+            };
+        }
 
         this._innerWalls = this._innerWalls || [];
         this._innerWalls.push(wallSegment);
@@ -799,12 +878,22 @@ class Walls {
                 const wallPath = new Path2D();
 
                 if (wall.alignment === "left" || wall.alignment === "right") {
+                    // Draw the full wall segment without cropping
                     wallPath.moveTo(wall.start.x, wall.start.y);
                     wallPath.lineTo(wall.end.x, wall.end.y);
                     wallPath.lineTo(offsetPoints.end.x, offsetPoints.end.y);
                     wallPath.lineTo(offsetPoints.start.x, offsetPoints.start.y);
                 } else {
-                    // center
+                    // center alignment
+                    const halfOffsetStart = {
+                        x: (wall.start.x + offsetPoints.start.x) / 2,
+                        y: (wall.start.y + offsetPoints.start.y) / 2,
+                    };
+                    const halfOffsetEnd = {
+                        x: (wall.end.x + offsetPoints.end.x) / 2,
+                        y: (wall.end.y + offsetPoints.end.y) / 2,
+                    };
+
                     wallPath.moveTo(
                         wall.start.x -
                             (offsetPoints.start.x - wall.start.x) / 2,
@@ -838,7 +927,7 @@ class Walls {
                 ctx.lineWidth = 1;
                 ctx.stroke(wallPath);
 
-                // Draw alignment line with appropriate color
+                // Draw alignment line
                 ctx.beginPath();
                 ctx.moveTo(wall.start.x, wall.start.y);
                 ctx.lineTo(wall.end.x, wall.end.y);
@@ -851,6 +940,27 @@ class Walls {
                 ctx.lineWidth = 2;
                 ctx.stroke();
             });
+        }
+        // Draw alignment lines when in inner wall mode
+        if (this._isInnerWallMode) {
+            ctx.save();
+            ctx.strokeStyle = "rgba(0, 150, 255, 0.3)";
+            ctx.setLineDash([5, 5]);
+
+            for (let i = 0; i < this._points.length - 1; i++) {
+                const start = this._points[i];
+                const end = this._points[i + 1];
+                const alignmentLines = this._generateAlignmentLines(start, end);
+
+                alignmentLines.forEach((line) => {
+                    ctx.beginPath();
+                    ctx.moveTo(line.start.x, line.start.y);
+                    ctx.lineTo(line.end.x, line.end.y);
+                    ctx.stroke();
+                });
+            }
+
+            ctx.restore();
         }
     }
 
@@ -1017,6 +1127,12 @@ class RoomPlanner {
         this._sofa = null;
         this._isDrawing = false;
         this._isDraggingSofa = false;
+        // Add sofa button
+        this._addSofaBtn = document.getElementById("addSofaBtn");
+        this._addSofaBtn.addEventListener("click", () => this.addSofa());
+
+        // Initialize button state
+        this.updateAddSofaButtonState();
 
         this._mouseX = 0;
         this._mouseY = 0;
@@ -1178,6 +1294,7 @@ class RoomPlanner {
         }
 
         this.updateEditButtonState();
+        this.updateAddSofaButtonState();
         this.draw();
         this.logState("Room planning started");
     }
@@ -1469,9 +1586,8 @@ class RoomPlanner {
         if (isComplete) {
             this._isDrawing = false;
             this.updateEditButtonState(true);
-            this._sofa = new Sofa(0, 0, 100, 50);
-            this._sofa.centerIn(this._walls.points);
-            this.logState("Room completed, sofa added");
+            this.updateAddSofaButtonState();
+            this.logState("Room completed");
         }
 
         this.draw();
@@ -1624,6 +1740,19 @@ class RoomPlanner {
         }
     }
 
+    updateAddSofaButtonState() {
+        if (this._addSofaBtn) {
+            this._addSofaBtn.disabled = !this._walls.isComplete;
+        }
+    }
+
+    addSofa() {
+        if (this._walls.isComplete) {
+            this._sofa = new Sofa(0, 0, 100, 50);
+            this._sofa.centerIn(this._walls.points);
+            this.draw();
+        }
+    }
     //*TODO Debug mode for visual collision detection
     checkSofaWallCollision() {
         const corners = this.getSofaCorners();
