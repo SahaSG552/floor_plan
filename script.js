@@ -242,6 +242,12 @@ class Walls {
 
     updateWallPosition(x, y) {
         if (this._selectedWallIndex !== -1 && this._dragStartPoint) {
+            // Store original wall positions for potential rollback
+            const originalPoints = [...this._points];
+            const originalInnerWalls = this._innerWalls
+                ? [...this._innerWalls]
+                : [];
+
             const start = this._points[this._selectedWallIndex];
             const end =
                 this._points[
@@ -270,6 +276,10 @@ class Walls {
             const newX = start.x + dotProduct * normalX;
             const newY = start.y + dotProduct * normalY;
 
+            // Calculate the movement delta
+            const deltaX = newX - start.x;
+            const deltaY = newY - start.y;
+
             // Update the selected wall position
             this._points[this._selectedWallIndex].x = newX;
             this._points[this._selectedWallIndex].y = newY;
@@ -280,11 +290,121 @@ class Walls {
             this._points[nextIndex].x = newX + dx;
             this._points[nextIndex].y = newY + dy;
 
-            // Update attached inner walls
-            this.updateAttachedInnerWalls();
+            // Update connected inner walls
+            // Update connected inner walls
+            if (this._innerWalls) {
+                this._innerWalls.forEach((wall) => {
+                    // Update start attachment
+                    if (
+                        wall.attachments.start &&
+                        wall.attachments.start.isOuter
+                    ) {
+                        const startWallIndex = wall.attachments.start.wallIndex;
+                        if (startWallIndex === this._selectedWallIndex) {
+                            const startWall = {
+                                start: this._points[startWallIndex],
+                                end: this._points[
+                                    (startWallIndex + 1) % this._points.length
+                                ],
+                            };
+                            const param = this.getParametricPosition(
+                                wall.start,
+                                originalPoints[startWallIndex],
+                                originalPoints[
+                                    (startWallIndex + 1) % this._points.length
+                                ]
+                            );
+                            wall.start = {
+                                x:
+                                    startWall.start.x +
+                                    param *
+                                        (startWall.end.x - startWall.start.x),
+                                y:
+                                    startWall.start.y +
+                                    param *
+                                        (startWall.end.y - startWall.start.y),
+                            };
+                        }
+                    }
+
+                    // Update end attachment
+                    if (wall.attachments.end && wall.attachments.end.isOuter) {
+                        const endWallIndex = wall.attachments.end.wallIndex;
+                        if (endWallIndex === this._selectedWallIndex) {
+                            const endWall = {
+                                start: this._points[endWallIndex],
+                                end: this._points[
+                                    (endWallIndex + 1) % this._points.length
+                                ],
+                            };
+                            const param = this.getParametricPosition(
+                                wall.end,
+                                originalPoints[endWallIndex],
+                                originalPoints[
+                                    (endWallIndex + 1) % this._points.length
+                                ]
+                            );
+                            wall.end = {
+                                x:
+                                    endWall.start.x +
+                                    param * (endWall.end.x - endWall.start.x),
+                                y:
+                                    endWall.start.y +
+                                    param * (endWall.end.y - endWall.start.y),
+                            };
+                        }
+                    }
+
+                    // Update helper points
+                    if (wall.helpers.length > 0) {
+                        wall.helpers = this.recalculateHelperPoints(wall);
+                    }
+                });
+            }
 
             this.logState("Wall position updated");
         }
+    }
+
+    // Add these helper methods to the Walls class:
+
+    isPointOnWallSegment(point, wallStart, wallEnd) {
+        const distance = this.pointToLineDistance(
+            point.x,
+            point.y,
+            wallStart.x,
+            wallStart.y,
+            wallEnd.x,
+            wallEnd.y
+        );
+        return (
+            distance.distance < this._magnetDistance &&
+            distance.param >= 0 &&
+            distance.param <= 1
+        );
+    }
+
+    getParametricPosition(point, wallStart, wallEnd) {
+        const dx = wallEnd.x - wallStart.x;
+        const dy = wallEnd.y - wallStart.y;
+        const length = Math.sqrt(dx * dx + dy * dy);
+
+        if (length === 0) return 0;
+
+        return (
+            ((point.x - wallStart.x) * dx + (point.y - wallStart.y) * dy) /
+            (length * length)
+        );
+    }
+
+    recalculateHelperPoints(wall) {
+        return this.findAllIntersections(wall.start, wall.end).map(
+            (intersection) => ({
+                x: intersection.point.x,
+                y: intersection.point.y,
+                type: "intersection",
+            })
+        );
     }
 
     findMagnetPoint(x, y) {
@@ -783,42 +903,142 @@ class Walls {
     }
 
     addInnerWall(startPoint, endPoint, alignment) {
-        // Store the original points even if they're outside
-        const wallSegment = {
-            start: { ...startPoint },
-            end: { ...endPoint },
-            isInner: true,
-            alignment: alignment,
-            attachments: {
-                start: null,
-                end: null,
-            },
-        };
+        // Find all intersections with outer walls
+        const intersections = this.findAllIntersections(startPoint, endPoint);
 
-        // Find intersections with outer walls
-        const startIntersection = this.findWallIntersection(
-            startPoint,
-            endPoint
-        );
-        const endIntersection = this.findWallIntersection(endPoint, startPoint);
+        // Sort intersections by distance from start point
+        intersections.sort((a, b) => {
+            const distA = Math.hypot(
+                a.point.x - startPoint.x,
+                a.point.y - startPoint.y
+            );
+            const distB = Math.hypot(
+                b.point.x - startPoint.x,
+                b.point.y - startPoint.y
+            );
+            return distA - distB;
+        });
 
-        // Only update points if intersections are found
-        if (startIntersection) {
-            wallSegment.attachments.start = {
-                wallIndex: startIntersection.wallIndex,
-                param: startIntersection.param,
+        // Create wall segments for each section
+        const wallSegments = [];
+        let currentStart = { ...startPoint };
+
+        intersections.forEach((intersection, index) => {
+            // Create a wall segment
+            const segment = {
+                start: { ...currentStart },
+                end: { ...intersection.point },
+                isInner: true,
+                alignment: alignment,
+                attachments: {
+                    start:
+                        index === 0
+                            ? null
+                            : {
+                                  point: { ...currentStart },
+                                  wallIndex: intersections[index - 1].wallIndex,
+                                  isOuter: intersections[index - 1].isOuter,
+                              },
+                    end: {
+                        point: { ...intersection.point },
+                        wallIndex: intersection.wallIndex,
+                        isOuter: intersection.isOuter,
+                    },
+                },
+                helpers: [
+                    {
+                        x: intersection.point.x,
+                        y: intersection.point.y,
+                        type: "intersection",
+                    },
+                ],
             };
-        }
 
-        if (endIntersection) {
-            wallSegment.attachments.end = {
-                wallIndex: endIntersection.wallIndex,
-                param: endIntersection.param,
+            wallSegments.push(segment);
+            currentStart = { ...intersection.point };
+        });
+
+        // Add final segment if needed
+        if (intersections.length > 0) {
+            const lastSegment = {
+                start: { ...currentStart },
+                end: { ...endPoint },
+                isInner: true,
+                alignment: alignment,
+                attachments: {
+                    start: {
+                        point: { ...currentStart },
+                        wallIndex:
+                            intersections[intersections.length - 1].wallIndex,
+                        isOuter:
+                            intersections[intersections.length - 1].isOuter,
+                    },
+                    end: null,
+                },
+                helpers: [],
             };
+            wallSegments.push(lastSegment);
+        } else {
+            // No intersections, create single segment
+            wallSegments.push({
+                start: { ...startPoint },
+                end: { ...endPoint },
+                isInner: true,
+                alignment: alignment,
+                attachments: {
+                    start: null,
+                    end: null,
+                },
+                helpers: [],
+            });
         }
 
         this._innerWalls = this._innerWalls || [];
-        this._innerWalls.push(wallSegment);
+        this._innerWalls.push(...wallSegments);
+    }
+
+    findAllIntersections(start, end) {
+        const intersections = [];
+
+        // Check intersections with outer walls
+        for (let i = 0; i < this._points.length - 1; i++) {
+            const result = this.lineIntersection(
+                start,
+                end,
+                this._points[i],
+                this._points[i + 1]
+            );
+
+            if (result && result.onLine1 && result.onLine2) {
+                intersections.push({
+                    point: { x: result.x, y: result.y },
+                    wallIndex: i,
+                    isOuter: true,
+                });
+            }
+        }
+
+        // Check intersections with other inner walls
+        if (this._innerWalls) {
+            this._innerWalls.forEach((wall, index) => {
+                const result = this.lineIntersection(
+                    start,
+                    end,
+                    wall.start,
+                    wall.end
+                );
+
+                if (result && result.onLine1 && result.onLine2) {
+                    intersections.push({
+                        point: { x: result.x, y: result.y },
+                        wallIndex: index,
+                        isOuter: false,
+                    });
+                }
+            });
+        }
+
+        return intersections;
     }
 
     updateAttachedInnerWalls() {
@@ -885,15 +1105,6 @@ class Walls {
                     wallPath.lineTo(offsetPoints.start.x, offsetPoints.start.y);
                 } else {
                     // center alignment
-                    const halfOffsetStart = {
-                        x: (wall.start.x + offsetPoints.start.x) / 2,
-                        y: (wall.start.y + offsetPoints.start.y) / 2,
-                    };
-                    const halfOffsetEnd = {
-                        x: (wall.end.x + offsetPoints.end.x) / 2,
-                        y: (wall.end.y + offsetPoints.end.y) / 2,
-                    };
-
                     wallPath.moveTo(
                         wall.start.x -
                             (offsetPoints.start.x - wall.start.x) / 2,
@@ -939,8 +1150,22 @@ class Walls {
                         : "rgb(100, 0, 40)";
                 ctx.lineWidth = 2;
                 ctx.stroke();
+
+                // Draw helper points at intersections
+                if (wall.helpers && wall.helpers.length > 0) {
+                    wall.helpers.forEach((helper) => {
+                        ctx.beginPath();
+                        ctx.arc(helper.x, helper.y, 4, 0, Math.PI * 2);
+                        ctx.fillStyle = "red";
+                        ctx.fill();
+                        ctx.strokeStyle = "white";
+                        ctx.lineWidth = 1;
+                        ctx.stroke();
+                    });
+                }
             });
         }
+
         // Draw alignment lines when in inner wall mode
         if (this._isInnerWallMode) {
             ctx.save();
