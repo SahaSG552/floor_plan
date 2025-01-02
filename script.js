@@ -576,39 +576,133 @@ class Walls {
         );
     }
 
-    findMagnetPoint(x, y) {
+    findTangentPoints(point, radius = 50) {
+        const tangentPoints = [];
+
+        // Find tangent points for each wall
+        for (let i = 0; i < this._points.length - 1; i++) {
+            const start = this._points[i];
+            const end = this._points[i + 1];
+
+            // Calculate wall vector
+            const wallDx = end.x - start.x;
+            const wallDy = end.y - start.y;
+            const wallLength = Math.sqrt(wallDx * wallDx + wallDy * wallDy);
+
+            if (wallLength === 0) continue;
+
+            // Calculate normalized perpendicular vector
+            const perpX = -wallDy / wallLength;
+            const perpY = wallDx / wallLength;
+
+            // Calculate potential tangent points
+            const tangent1 = {
+                x: point.x + perpX * radius,
+                y: point.y + perpY * radius,
+            };
+
+            const tangent2 = {
+                x: point.x - perpX * radius,
+                y: point.y - perpY * radius,
+            };
+
+            // Check if points are within wall segment
+            if (this.isPointOnWallSegment(tangent1, start, end)) {
+                tangentPoints.push(tangent1);
+            }
+            if (this.isPointOnWallSegment(tangent2, start, end)) {
+                tangentPoints.push(tangent2);
+            }
+        }
+
+        return tangentPoints;
+    }
+
+    findMagnetPoint(x, y, useOrthoSnap = false) {
         let magnetPoint = { x, y };
         let minDistance = Infinity;
         let foundMagnet = false;
 
-        // Helper function to calculate distance between points
-        const getDistance = (p1, p2) => {
-            return Math.sqrt(
-                Math.pow(p2.x - p1.x, 2) + Math.pow(p2.y - p1.y, 2)
-            );
-        };
+        // First, check for tangent points if enabled
+        if (this._snapToTangent) {
+            const tangentPoints = this.findTangentPoints({ x, y });
+            for (const tangentPoint of tangentPoints) {
+                const distance = this.getDistance({ x, y }, tangentPoint);
+                // Use a larger snap range for initial detection
+                if (distance < this._magnetDistance * 2) {
+                    // Create sticky effect by using the tangent point directly
+                    // when within the normal magnetic distance
+                    if (distance < this._magnetDistance) {
+                        return { ...tangentPoint }; // Return a copy to prevent modification
+                    }
+                    // Otherwise, if this is the closest point so far, store it
+                    if (distance < minDistance) {
+                        magnetPoint = { ...tangentPoint };
+                        minDistance = distance;
+                        foundMagnet = true;
+                    }
+                }
+            }
+        }
 
-        // Function to check wall segments (both outer and inner)
-        const checkWallSegment = (start, end) => {
-            // Check endpoints first (highest priority)
-            const startDist = getDistance({ x, y }, start);
-            const endDist = getDistance({ x, y }, end);
+        // Only proceed with other snap points if we haven't found a tangent point within magnetic distance
+        if (!foundMagnet) {
+            // Find regular magnet points (endpoints and wall alignments)
+            const regularMagnetPoint = this._findRegularMagnetPoint(x, y);
+            if (regularMagnetPoint.found) {
+                magnetPoint = { ...regularMagnetPoint.point };
+                minDistance = regularMagnetPoint.distance;
+                foundMagnet = true;
+            }
 
+            // Apply ortho snap if shift is pressed and no closer magnet point was found
+            if (useOrthoSnap && this._points.length > 0) {
+                const lastPoint = this._points[this._points.length - 1];
+                const orthoPoint = this.calculateOrthoPoint(lastPoint, {
+                    x,
+                    y,
+                });
+
+                if (
+                    !foundMagnet ||
+                    this.getDistance(orthoPoint, { x, y }) < minDistance
+                ) {
+                    magnetPoint = { ...orthoPoint };
+                    foundMagnet = true;
+                }
+            }
+        }
+
+        return foundMagnet ? magnetPoint : { x, y };
+    }
+
+    _findRegularMagnetPoint(x, y) {
+        let magnetPoint = { x, y };
+        let minDistance = Infinity;
+        let foundMagnet = false;
+
+        // Check endpoints of all walls
+        for (let i = 0; i < this._points.length - 1; i++) {
+            const start = this._points[i];
+            const end = this._points[i + 1];
+
+            // Check start point
+            const startDist = this.getDistance({ x, y }, start);
             if (startDist < this._magnetDistance && startDist < minDistance) {
                 magnetPoint = { ...start };
                 minDistance = startDist;
                 foundMagnet = true;
-                return true;
             }
 
+            // Check end point
+            const endDist = this.getDistance({ x, y }, end);
             if (endDist < this._magnetDistance && endDist < minDistance) {
                 magnetPoint = { ...end };
                 minDistance = endDist;
                 foundMagnet = true;
-                return true;
             }
 
-            // Check wall alignment lines
+            // Check wall alignment
             const result = this.pointToLineDistance(
                 x,
                 y,
@@ -620,32 +714,101 @@ class Walls {
             if (
                 result.distance < this._magnetDistance &&
                 result.param >= 0 &&
-                result.param <= 1
+                result.param <= 1 &&
+                result.distance < minDistance
             ) {
-                if (result.distance < minDistance) {
+                magnetPoint = result.closestPoint;
+                minDistance = result.distance;
+                foundMagnet = true;
+            }
+        }
+
+        // Check inner walls if they exist
+        if (this._innerWalls) {
+            this._innerWalls.forEach((wall) => {
+                // Check wall endpoints
+                const startDist = this.getDistance({ x, y }, wall.start);
+                if (
+                    startDist < this._magnetDistance &&
+                    startDist < minDistance
+                ) {
+                    magnetPoint = { ...wall.start };
+                    minDistance = startDist;
+                    foundMagnet = true;
+                }
+
+                const endDist = this.getDistance({ x, y }, wall.end);
+                if (endDist < this._magnetDistance && endDist < minDistance) {
+                    magnetPoint = { ...wall.end };
+                    minDistance = endDist;
+                    foundMagnet = true;
+                }
+
+                // Check wall alignment
+                const result = this.pointToLineDistance(
+                    x,
+                    y,
+                    wall.start.x,
+                    wall.start.y,
+                    wall.end.x,
+                    wall.end.y
+                );
+                if (
+                    result.distance < this._magnetDistance &&
+                    result.param >= 0 &&
+                    result.param <= 1 &&
+                    result.distance < minDistance
+                ) {
                     magnetPoint = result.closestPoint;
                     minDistance = result.distance;
                     foundMagnet = true;
-                    return true;
                 }
-            }
-            return false;
-        };
-
-        // Check outer walls
-        for (let i = 0; i < this._points.length - 1; i++) {
-            checkWallSegment(this._points[i], this._points[i + 1]);
-        }
-
-        // Check inner walls
-        if (this._innerWalls) {
-            this._innerWalls.forEach((wall) => {
-                checkWallSegment(wall.start, wall.end);
             });
         }
 
-        // If no magnet point was found within magnet distance, return original point
-        return foundMagnet ? magnetPoint : { x, y };
+        return {
+            point: magnetPoint,
+            distance: minDistance,
+            found: foundMagnet,
+        };
+    }
+
+    calculateOrthoPoint(start, end, snapThreshold = 3) {
+        const dx = end.x - start.x;
+        const dy = end.y - start.y;
+        const angle = (Math.atan2(dy, dx) * 180) / Math.PI;
+
+        // Snap to horizontal or vertical
+        if (
+            Math.abs(angle) <= snapThreshold ||
+            Math.abs(angle) >= 180 - snapThreshold ||
+            Math.abs(Math.abs(angle) - 180) <= snapThreshold
+        ) {
+            return { x: end.x, y: start.y }; // Horizontal
+        } else if (
+            Math.abs(angle - 90) <= snapThreshold ||
+            Math.abs(angle + 90) <= snapThreshold
+        ) {
+            return { x: start.x, y: end.y }; // Vertical
+        }
+
+        // Snap to 45-degree angles
+        if (
+            Math.abs(Math.abs(angle) - 45) <= snapThreshold ||
+            Math.abs(Math.abs(angle) - 135) <= snapThreshold
+        ) {
+            const distance = Math.sqrt(dx * dx + dy * dy);
+            const unit = distance / Math.sqrt(2);
+            const sign = angle > 0 ? 1 : -1;
+
+            if (Math.abs(angle) < 90) {
+                return { x: start.x + unit, y: start.y + unit * sign };
+            } else {
+                return { x: start.x - unit, y: start.y + unit * sign };
+            }
+        }
+
+        return end;
     }
 
     // Add this new method to generate alignment lines
@@ -1363,6 +1526,28 @@ class Walls {
         this._drawWalls(ctx, tempPoints);
     }
 
+    drawSnapPoints(ctx) {
+        // Draw regular snap points
+        this._points.forEach((point) => {
+            ctx.beginPath();
+            ctx.arc(point.x, point.y, 4, 0, Math.PI * 2);
+            ctx.fillStyle = "rgba(0, 255, 0, 0.5)";
+            ctx.fill();
+        });
+
+        // Draw tangent snap points if enabled
+        if (this._snapToTangent && this._points.length > 1) {
+            const currentPoint = { x: this._mouseX, y: this._mouseY };
+            const tangentPoints = this.findTangentPoints(currentPoint);
+
+            tangentPoints.forEach((point) => {
+                ctx.beginPath();
+                ctx.arc(point.x, point.y, 4, 0, Math.PI * 2);
+                ctx.fillStyle = "rgba(0, 150, 255, 0.5)";
+                ctx.fill();
+            });
+        }
+    }
     // Check if point is near wall segment
     isPointNearWallSegment(x, y, wallSegment) {
         const distance = this.pointToLineDistance(
@@ -1634,6 +1819,8 @@ class RoomPlanner {
         this._mouseY = 0;
         this._mouseOffset = { x: 0, y: 0 };
         this._magnetDistance = 30;
+        this._isShiftPressed = false;
+        this._snapToTangent = true; // Enable tangent snapping by default
 
         this._thicknessInput = document.getElementById("thicknessInput");
         this._acceptThicknessButton = document.getElementById(
@@ -1671,8 +1858,9 @@ class RoomPlanner {
             right: "rgb(100, 0, 40)",
         };
 
-        // Add keyboard event listener
-        document.addEventListener("keydown", (e) => this.handleKeyPress(e));
+        // Keyboard event listener
+        document.addEventListener("keydown", (e) => this.handleKeyDown(e));
+        document.addEventListener("keyup", (e) => this.handleKeyUp(e));
     }
 
     // Getters
@@ -1828,24 +2016,23 @@ class RoomPlanner {
         this._mouseY = e.offsetY;
 
         if (this._isDrawing && this._walls.points.length > 0) {
-            // Get the last point as start point for ortho alignment
             const lastPoint = this._walls.points[this._walls.points.length - 1];
             const mousePoint = { x: e.offsetX, y: e.offsetY };
 
-            // Apply ortho alignment
-            const alignedPoint = this.applyOrthoAlignment(
-                lastPoint,
-                mousePoint
-            );
-
-            // Find magnet point
+            // Use ortho snap only when shift is pressed
             const magnetPoint = this._walls.findMagnetPoint(
-                alignedPoint.x,
-                alignedPoint.y
+                mousePoint.x,
+                mousePoint.y,
+                this._isShiftPressed
             );
 
             const tempPoints = [...this._walls.points, magnetPoint];
             this.draw(tempPoints);
+
+            // Draw preview lines for tangent points
+            if (this._walls._snapToTangent) {
+                this.drawTangentPreviews(magnetPoint);
+            }
             return;
         }
 
@@ -2089,7 +2276,7 @@ class RoomPlanner {
         this.draw();
     }
 
-    handleKeyPress(e) {
+    handleKeyDown(e) {
         if (e.key === "Escape") {
             // Cancel inner wall drawing
             if (this._isInnerWallMode) {
@@ -2111,6 +2298,29 @@ class RoomPlanner {
 
             this.draw();
         }
+        if (e.key === "Shift") {
+            this._isShiftPressed = true;
+            // Redraw with updated snap if currently drawing
+            if (this._isDrawing || this._isInnerWallMode) {
+                this.handleMouseMove({
+                    offsetX: this._mouseX,
+                    offsetY: this._mouseY,
+                });
+            }
+        }
+    }
+
+    handleKeyUp(e) {
+        if (e.key === "Shift") {
+            this._isShiftPressed = false;
+            // Redraw with updated snap if currently drawing
+            if (this._isDrawing || this._isInnerWallMode) {
+                this.handleMouseMove({
+                    offsetX: this._mouseX,
+                    offsetY: this._mouseY,
+                });
+            }
+        }
     }
 
     updateEditButtonState(active = false) {
@@ -2130,6 +2340,23 @@ class RoomPlanner {
         this._alignRight.disabled = !this._isEditButtonActive;
 
         console.log("Edit button state:", this._isEditButtonActive);
+    }
+
+    drawTangentPreviews(point) {
+        const tangentPoints = this._walls.findTangentPoints(point);
+
+        this._ctx.save();
+        this._ctx.strokeStyle = "rgba(0, 150, 255, 0.5)";
+        this._ctx.setLineDash([5, 5]);
+
+        tangentPoints.forEach((tangentPoint) => {
+            this._ctx.beginPath();
+            this._ctx.moveTo(point.x, point.y);
+            this._ctx.lineTo(tangentPoint.x, tangentPoint.y);
+            this._ctx.stroke();
+        });
+
+        this._ctx.restore();
     }
 
     moveSofa(mouseX, mouseY) {
