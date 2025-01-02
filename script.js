@@ -144,6 +144,8 @@ class Walls {
         this._dragStartPoint = null;
         this._originalThickness = null;
         this._originalWallPoints = null;
+        this._rooms = new Map(); // Map of room ID to Room instance
+        this._wallSegments = new Map();
     }
 
     // Getters
@@ -216,6 +218,110 @@ class Walls {
         return this._selectedWallIndex;
     }
 
+    addWall(start, end) {
+        const newWall = new WallSegment(start, end, this._thickness);
+
+        // Check for intersections with existing walls
+        const intersections = this.findWallIntersections(newWall);
+
+        if (intersections.length > 0) {
+            // Sort intersections by distance from start
+            intersections.sort((a, b) => {
+                const distA = this.getDistance(start, a.point);
+                const distB = this.getDistance(start, b.point);
+                return distA - distB;
+            });
+
+            // Create wall segments
+            let currentPoint = start;
+            const segments = [];
+
+            intersections.forEach((intersection) => {
+                segments.push(
+                    new WallSegment(
+                        currentPoint,
+                        intersection.point,
+                        this._thickness
+                    )
+                );
+                currentPoint = intersection.point;
+            });
+
+            // Add final segment
+            segments.push(new WallSegment(currentPoint, end, this._thickness));
+
+            // Update rooms
+            this.updateRooms(segments);
+
+            return segments;
+        } else {
+            // No intersections, add single wall
+            this._wallSegments.set(newWall.id, newWall);
+            this.updateRooms([newWall]);
+            return [newWall];
+        }
+    }
+
+    updateRooms(newWalls) {
+        // Find closed polygons formed by walls
+        const polygons = this.findClosedPolygons(newWalls);
+
+        polygons.forEach((polygon) => {
+            // Create new room if polygon is valid
+            if (this.isValidRoom(polygon)) {
+                const room = new Room(polygon);
+                this._rooms.set(room.id, room);
+
+                // Update wall segments with room association
+                this.updateWallRoomAssociations(room);
+            }
+        });
+    }
+
+    findClosedPolygons(newWalls) {
+        // Implementation to find closed polygons formed by walls
+        // This would use a graph-based approach to find cycles
+        // Returns array of point arrays representing closed polygons
+    }
+
+    isValidRoom(polygon) {
+        // Check if polygon forms a valid room
+        // Minimum area, no self-intersections, etc.
+        const minArea = 1; // Minimum area in square units
+        const room = new Room(polygon);
+        return room.area >= minArea && !this.hasIntersectingWalls(polygon);
+    }
+
+    updateWallRoomAssociations(room) {
+        // Update which rooms each wall segment belongs to
+        this._wallSegments.forEach((wall) => {
+            if (this.isWallPartOfRoom(wall, room)) {
+                wall.addRoom(room);
+            }
+        });
+    }
+
+    // Helper methods...
+    getDistance(point1, point2) {
+        return Math.sqrt(
+            Math.pow(point2.x - point1.x, 2) + Math.pow(point2.y - point1.y, 2)
+        );
+    }
+
+    findWallIntersections(newWall) {
+        const intersections = [];
+        this._wallSegments.forEach((existingWall) => {
+            const intersection = newWall.intersectsWith(existingWall);
+            if (intersection) {
+                intersections.push({
+                    point: intersection,
+                    wall: existingWall,
+                });
+            }
+        });
+        return intersections;
+    }
+
     selectWall(index) {
         this._selectedWallIndex = index;
         this._dragStartPoint = null;
@@ -241,132 +347,195 @@ class Walls {
     }
 
     updateWallPosition(x, y) {
-        if (this._selectedWallIndex !== -1 && this._dragStartPoint) {
-            // Store original wall positions for potential rollback
-            const originalPoints = [...this._points];
-            const originalInnerWalls = this._innerWalls
-                ? [...this._innerWalls]
-                : [];
+        if (this._selectedWallIndex === -1 || !this._dragStartPoint) return;
 
-            const start = this._points[this._selectedWallIndex];
-            const end =
-                this._points[
-                    (this._selectedWallIndex + 1) % this._points.length
-                ];
+        // Store original state for potential rollback
+        const originalPoints = [...this._points];
+        const originalInnerWalls = this._innerWalls
+            ? [...this._innerWalls]
+            : [];
 
-            // Calculate the wall's direction vector
-            const dx = end.x - start.x;
-            const dy = end.y - start.y;
-            const length = Math.sqrt(dx * dx + dy * dy);
-            const directionX = dx / length;
-            const directionY = dy / length;
+        // Get selected wall
+        const start = this._points[this._selectedWallIndex];
+        const end =
+            this._points[(this._selectedWallIndex + 1) % this._points.length];
 
-            // Calculate the wall's normal vector
-            const normalX = -directionY;
-            const normalY = directionX;
+        // Calculate movement vectors
+        const dx = end.x - start.x;
+        const dy = end.y - start.y;
+        const length = Math.sqrt(dx * dx + dy * dy);
+        const directionX = dx / length;
+        const directionY = dy / length;
+        const normalX = -directionY;
+        const normalY = directionX;
 
-            // Calculate the vector from the start of the wall to the mouse position
-            const mouseVectorX = x - start.x;
-            const mouseVectorY = y - start.y;
+        // Calculate new position
+        const mouseVectorX = x - start.x;
+        const mouseVectorY = y - start.y;
+        const dotProduct = mouseVectorX * normalX + mouseVectorY * normalY;
+        const newX = start.x + dotProduct * normalX;
+        const newY = start.y + dotProduct * normalY;
 
-            // Calculate the dot product of the mouse vector and the wall's normal vector
-            const dotProduct = mouseVectorX * normalX + mouseVectorY * normalY;
+        // Move selected wall
+        this._points[this._selectedWallIndex].x = newX;
+        this._points[this._selectedWallIndex].y = newY;
+        this._points[(this._selectedWallIndex + 1) % this._points.length].x =
+            newX + dx;
+        this._points[(this._selectedWallIndex + 1) % this._points.length].y =
+            newY + dy;
 
-            // Calculate the new position of the wall
-            const newX = start.x + dotProduct * normalX;
-            const newY = start.y + dotProduct * normalY;
+        // Update all connected walls
+        const updatedWalls = new Set([this._selectedWallIndex]);
+        let hasChanges = true;
 
-            // Calculate the movement delta
-            const deltaX = newX - start.x;
-            const deltaY = newY - start.y;
+        while (hasChanges) {
+            hasChanges = false;
 
-            // Update the selected wall position
-            this._points[this._selectedWallIndex].x = newX;
-            this._points[this._selectedWallIndex].y = newY;
+            // Check all walls for new intersections
+            for (let i = 0; i < this._points.length - 1; i++) {
+                if (updatedWalls.has(i)) continue;
 
-            // Update the next wall position
-            const nextIndex =
-                (this._selectedWallIndex + 1) % this._points.length;
-            this._points[nextIndex].x = newX + dx;
-            this._points[nextIndex].y = newY + dy;
+                const wallStart = this._points[i];
+                const wallEnd = this._points[i + 1];
 
-            // Update connected inner walls
-            // Update connected inner walls
-            if (this._innerWalls) {
-                this._innerWalls.forEach((wall) => {
-                    // Update start attachment
+                // Check intersections with updated walls
+                for (const updatedWallIndex of updatedWalls) {
+                    const updatedWallStart = this._points[updatedWallIndex];
+                    const updatedWallEnd =
+                        this._points[
+                            (updatedWallIndex + 1) % this._points.length
+                        ];
+
+                    const intersection = this.lineIntersection(
+                        wallStart,
+                        wallEnd,
+                        updatedWallStart,
+                        updatedWallEnd
+                    );
+
                     if (
-                        wall.attachments.start &&
-                        wall.attachments.start.isOuter
+                        intersection &&
+                        intersection.onLine1 &&
+                        intersection.onLine2
                     ) {
-                        const startWallIndex = wall.attachments.start.wallIndex;
-                        if (startWallIndex === this._selectedWallIndex) {
-                            const startWall = {
-                                start: this._points[startWallIndex],
-                                end: this._points[
-                                    (startWallIndex + 1) % this._points.length
-                                ],
-                            };
-                            const param = this.getParametricPosition(
-                                wall.start,
-                                originalPoints[startWallIndex],
-                                originalPoints[
-                                    (startWallIndex + 1) % this._points.length
-                                ]
-                            );
-                            wall.start = {
-                                x:
-                                    startWall.start.x +
-                                    param *
-                                        (startWall.end.x - startWall.start.x),
-                                y:
-                                    startWall.start.y +
-                                    param *
-                                        (startWall.end.y - startWall.start.y),
-                            };
+                        // Adjust wall endpoints to intersection point
+                        if (intersection.param1 < 0.5) {
+                            wallStart.x = intersection.x;
+                            wallStart.y = intersection.y;
+                        } else {
+                            wallEnd.x = intersection.x;
+                            wallEnd.y = intersection.y;
                         }
-                    }
 
-                    // Update end attachment
-                    if (wall.attachments.end && wall.attachments.end.isOuter) {
-                        const endWallIndex = wall.attachments.end.wallIndex;
-                        if (endWallIndex === this._selectedWallIndex) {
-                            const endWall = {
-                                start: this._points[endWallIndex],
-                                end: this._points[
-                                    (endWallIndex + 1) % this._points.length
-                                ],
-                            };
-                            const param = this.getParametricPosition(
-                                wall.end,
-                                originalPoints[endWallIndex],
-                                originalPoints[
-                                    (endWallIndex + 1) % this._points.length
-                                ]
-                            );
-                            wall.end = {
-                                x:
-                                    endWall.start.x +
-                                    param * (endWall.end.x - endWall.start.x),
-                                y:
-                                    endWall.start.y +
-                                    param * (endWall.end.y - endWall.start.y),
-                            };
-                        }
+                        updatedWalls.add(i);
+                        hasChanges = true;
                     }
-
-                    // Update helper points
-                    if (wall.helpers.length > 0) {
-                        wall.helpers = this.recalculateHelperPoints(wall);
-                    }
-                });
+                }
             }
-
-            this.logState("Wall position updated");
         }
+
+        // Update inner walls
+        if (this._innerWalls) {
+            this._innerWalls.forEach((wall) => {
+                // Update start attachment
+                if (wall.attachments.start && wall.attachments.start.isOuter) {
+                    const startWallIndex = wall.attachments.start.wallIndex;
+                    const param = this.getParametricPosition(
+                        wall.start,
+                        originalPoints[startWallIndex],
+                        originalPoints[
+                            (startWallIndex + 1) % this._points.length
+                        ]
+                    );
+
+                    const startWall = {
+                        start: this._points[startWallIndex],
+                        end: this._points[
+                            (startWallIndex + 1) % this._points.length
+                        ],
+                    };
+
+                    wall.start = {
+                        x:
+                            startWall.start.x +
+                            param * (startWall.end.x - startWall.start.x),
+                        y:
+                            startWall.start.y +
+                            param * (startWall.end.y - startWall.start.y),
+                    };
+                }
+
+                // Update end attachment
+                if (wall.attachments.end && wall.attachments.end.isOuter) {
+                    const endWallIndex = wall.attachments.end.wallIndex;
+                    const param = this.getParametricPosition(
+                        wall.end,
+                        originalPoints[endWallIndex],
+                        originalPoints[(endWallIndex + 1) % this._points.length]
+                    );
+
+                    const endWall = {
+                        start: this._points[endWallIndex],
+                        end: this._points[
+                            (endWallIndex + 1) % this._points.length
+                        ],
+                    };
+
+                    wall.end = {
+                        x:
+                            endWall.start.x +
+                            param * (endWall.end.x - endWall.start.x),
+                        y:
+                            endWall.start.y +
+                            param * (endWall.end.y - endWall.start.y),
+                    };
+                }
+
+                // Update helper points
+                if (wall.helpers.length > 0) {
+                    wall.helpers = this.recalculateHelperPoints(wall);
+                }
+            });
+        }
+
+        // Validate the new configuration
+        if (this.hasInvalidConfiguration()) {
+            // Rollback changes if the new configuration is invalid
+            this._points = originalPoints;
+            if (this._innerWalls) {
+                this._innerWalls = originalInnerWalls;
+            }
+            return false;
+        }
+
+        this.logState("Wall position updated");
+        return true;
     }
 
-    // Add these helper methods to the Walls class:
+    // Helper method to check for invalid configurations
+    hasInvalidConfiguration() {
+        // Check for self-intersections
+        for (let i = 0; i < this._points.length - 1; i++) {
+            for (let j = i + 2; j < this._points.length - 1; j++) {
+                const intersection = this.lineIntersection(
+                    this._points[i],
+                    this._points[i + 1],
+                    this._points[j],
+                    this._points[j + 1]
+                );
+                if (
+                    intersection &&
+                    intersection.onLine1 &&
+                    intersection.onLine2
+                ) {
+                    return true;
+                }
+            }
+        }
+
+        // Add more validation checks as needed
+        return false;
+    }
 
     isPointOnWallSegment(point, wallStart, wallEnd) {
         const distance = this.pointToLineDistance(
@@ -1334,6 +1503,108 @@ class Walls {
             magnetDistance: this.magnetDistance,
             wallLengths: this.getWallLengths(),
         });
+    }
+}
+class Room {
+    constructor(bounds) {
+        this._bounds = bounds; // Array of points defining room boundary
+        this._area = this.calculateArea();
+        this._walls = []; // Array of walls that make up the room
+        this._id = Room.generateId();
+    }
+
+    static generateId() {
+        if (!this.idCounter) this.idCounter = 1;
+        return this.idCounter++;
+    }
+
+    get bounds() {
+        return [...this._bounds];
+    }
+    get area() {
+        return this._area;
+    }
+    get id() {
+        return this._id;
+    }
+
+    calculateArea() {
+        let area = 0;
+        const points = this._bounds;
+        for (let i = 0; i < points.length; i++) {
+            const j = (i + 1) % points.length;
+            area += points[i].x * points[j].y;
+            area -= points[j].x * points[i].y;
+        }
+        return Math.abs(area / 2);
+    }
+
+    containsPoint(point) {
+        let inside = false;
+        const bounds = this._bounds;
+
+        for (let i = 0, j = bounds.length - 1; i < bounds.length; j = i++) {
+            const xi = bounds[i].x,
+                yi = bounds[i].y;
+            const xj = bounds[j].x,
+                yj = bounds[j].y;
+
+            const intersect =
+                yi > point.y !== yj > point.y &&
+                point.x < ((xj - xi) * (point.y - yi)) / (yj - yi) + xi;
+
+            if (intersect) inside = !inside;
+        }
+
+        return inside;
+    }
+}
+class WallSegment {
+    constructor(start, end, thickness) {
+        this._start = start;
+        this._end = end;
+        this._thickness = thickness;
+        this._rooms = new Set(); // Rooms this wall segment belongs to
+        this._isShared = false;
+    }
+
+    get start() {
+        return { ...this._start };
+    }
+    get end() {
+        return { ...this._end };
+    }
+    get thickness() {
+        return this._thickness;
+    }
+    get isShared() {
+        return this._isShared;
+    }
+
+    addRoom(room) {
+        this._rooms.add(room);
+        this._isShared = this._rooms.size > 1;
+    }
+
+    removeRoom(room) {
+        this._rooms.delete(room);
+        this._isShared = this._rooms.size > 1;
+    }
+
+    intersectsWith(other) {
+        return this.lineIntersection(
+            this._start,
+            this._end,
+            other._start,
+            other._end
+        );
+    }
+
+    split(point) {
+        return [
+            new WallSegment(this._start, point, this._thickness),
+            new WallSegment(point, this._end, this._thickness),
+        ];
     }
 }
 
