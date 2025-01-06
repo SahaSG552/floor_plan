@@ -1235,7 +1235,7 @@ class Walls {
     }
 
     addInnerWall(startPoint, endPoint, alignment) {
-        // Find all intersections with outer walls
+        // Find all intersections with outer and inner walls
         const intersections = this.findAllIntersections(startPoint, endPoint);
 
         // Sort intersections by distance from start point
@@ -1287,6 +1287,15 @@ class Walls {
             };
 
             wallSegments.push(segment);
+
+            // If this intersection is with an inner wall, split the intersected wall
+            if (!intersection.isOuter && this._innerWalls) {
+                this.splitInnerWallAtIntersection(
+                    intersection.wallIndex,
+                    intersection.point
+                );
+            }
+
             currentStart = { ...intersection.point };
         });
 
@@ -1310,23 +1319,56 @@ class Walls {
                 helpers: [],
             };
             wallSegments.push(lastSegment);
-        } else {
-            // No intersections, create single segment
-            wallSegments.push({
-                start: { ...startPoint },
-                end: { ...endPoint },
-                isInner: true,
-                alignment: alignment,
-                attachments: {
-                    start: null,
-                    end: null,
-                },
-                helpers: [],
-            });
         }
 
         this._innerWalls = this._innerWalls || [];
         this._innerWalls.push(...wallSegments);
+    }
+
+    splitInnerWallAtIntersection(wallIndex, intersectionPoint) {
+        const wall = this._innerWalls[wallIndex];
+
+        // Create two new wall segments
+        const segment1 = {
+            start: { ...wall.start },
+            end: { ...intersectionPoint },
+            isInner: true,
+            alignment: wall.alignment,
+            attachments: {
+                start: wall.attachments.start,
+                end: {
+                    point: { ...intersectionPoint },
+                    isIntersection: true,
+                },
+            },
+            helpers: wall.helpers.filter(
+                (h) =>
+                    this.getDistance(h, wall.start) <
+                    this.getDistance(intersectionPoint, wall.start)
+            ),
+        };
+
+        const segment2 = {
+            start: { ...intersectionPoint },
+            end: { ...wall.end },
+            isInner: true,
+            alignment: wall.alignment,
+            attachments: {
+                start: {
+                    point: { ...intersectionPoint },
+                    isIntersection: true,
+                },
+                end: wall.attachments.end,
+            },
+            helpers: wall.helpers.filter(
+                (h) =>
+                    this.getDistance(h, wall.end) <
+                    this.getDistance(intersectionPoint, wall.end)
+            ),
+        };
+
+        // Replace the original wall with the two new segments
+        this._innerWalls.splice(wallIndex, 1, segment1, segment2);
     }
 
     findAllIntersections(start, end) {
