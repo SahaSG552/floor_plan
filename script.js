@@ -438,61 +438,85 @@ class Walls {
         if (this._innerWalls) {
             this._innerWalls.forEach((wall) => {
                 // Update start attachment
-                if (wall.attachments.start && wall.attachments.start.isOuter) {
+                if (
+                    wall.attachments.start &&
+                    wall.attachments.start.isOuter &&
+                    wall.attachments.start.wallIndex !== undefined
+                ) {
                     const startWallIndex = wall.attachments.start.wallIndex;
-                    const param = this.getParametricPosition(
-                        wall.start,
-                        originalPoints[startWallIndex],
+                    // Check if the original points exist at this index
+                    if (
+                        originalPoints[startWallIndex] &&
                         originalPoints[
                             (startWallIndex + 1) % this._points.length
                         ]
-                    );
+                    ) {
+                        const param = this.getParametricPosition(
+                            wall.start,
+                            originalPoints[startWallIndex],
+                            originalPoints[
+                                (startWallIndex + 1) % this._points.length
+                            ]
+                        );
 
-                    const startWall = {
-                        start: this._points[startWallIndex],
-                        end: this._points[
-                            (startWallIndex + 1) % this._points.length
-                        ],
-                    };
+                        const startWall = {
+                            start: this._points[startWallIndex],
+                            end: this._points[
+                                (startWallIndex + 1) % this._points.length
+                            ],
+                        };
 
-                    wall.start = {
-                        x:
-                            startWall.start.x +
-                            param * (startWall.end.x - startWall.start.x),
-                        y:
-                            startWall.start.y +
-                            param * (startWall.end.y - startWall.start.y),
-                    };
+                        wall.start = {
+                            x:
+                                startWall.start.x +
+                                param * (startWall.end.x - startWall.start.x),
+                            y:
+                                startWall.start.y +
+                                param * (startWall.end.y - startWall.start.y),
+                        };
+                    }
                 }
 
                 // Update end attachment
-                if (wall.attachments.end && wall.attachments.end.isOuter) {
+                if (
+                    wall.attachments.end &&
+                    wall.attachments.end.isOuter &&
+                    wall.attachments.end.wallIndex !== undefined
+                ) {
                     const endWallIndex = wall.attachments.end.wallIndex;
-                    const param = this.getParametricPosition(
-                        wall.end,
-                        originalPoints[endWallIndex],
+                    // Check if the original points exist at this index
+                    if (
+                        originalPoints[endWallIndex] &&
                         originalPoints[(endWallIndex + 1) % this._points.length]
-                    );
+                    ) {
+                        const param = this.getParametricPosition(
+                            wall.end,
+                            originalPoints[endWallIndex],
+                            originalPoints[
+                                (endWallIndex + 1) % this._points.length
+                            ]
+                        );
 
-                    const endWall = {
-                        start: this._points[endWallIndex],
-                        end: this._points[
-                            (endWallIndex + 1) % this._points.length
-                        ],
-                    };
+                        const endWall = {
+                            start: this._points[endWallIndex],
+                            end: this._points[
+                                (endWallIndex + 1) % this._points.length
+                            ],
+                        };
 
-                    wall.end = {
-                        x:
-                            endWall.start.x +
-                            param * (endWall.end.x - endWall.start.x),
-                        y:
-                            endWall.start.y +
-                            param * (endWall.end.y - endWall.start.y),
-                    };
+                        wall.end = {
+                            x:
+                                endWall.start.x +
+                                param * (endWall.end.x - endWall.start.x),
+                            y:
+                                endWall.start.y +
+                                param * (endWall.end.y - endWall.start.y),
+                        };
+                    }
                 }
 
                 // Update helper points
-                if (wall.helpers.length > 0) {
+                if (wall.helpers && wall.helpers.length > 0) {
                     wall.helpers = this.recalculateHelperPoints(wall);
                 }
             });
@@ -1251,14 +1275,16 @@ class Walls {
             return distA - distB;
         });
 
-        // Check if the wall only connects to the outer polygon at two points
-        const outerIntersections = intersections.filter((int) => int.isOuter);
-        const isSimpleConnection =
-            outerIntersections.length === 2 &&
-            intersections.length === 2 &&
-            !this.wallCrossesPolygon(startPoint, endPoint);
+        // Check if start point is on a polygon wall
+        const startOnPolygon = this.isPointOnPolygonWall(startPoint);
+        const endOnPolygon = this.isPointOnPolygonWall(endPoint);
 
-        if (isSimpleConnection) {
+        // If both points are on polygon walls and there are no other intersections
+        if (
+            startOnPolygon &&
+            endOnPolygon &&
+            !this.wallCrossesPolygon(startPoint, endPoint)
+        ) {
             // Add a single wall segment without extensions
             const wallSegment = {
                 start: { ...startPoint },
@@ -1268,12 +1294,12 @@ class Walls {
                 attachments: {
                     start: {
                         point: { ...startPoint },
-                        wallIndex: outerIntersections[0].wallIndex,
+                        wallIndex: startOnPolygon.wallIndex,
                         isOuter: true,
                     },
                     end: {
                         point: { ...endPoint },
-                        wallIndex: outerIntersections[1].wallIndex,
+                        wallIndex: endOnPolygon.wallIndex,
                         isOuter: true,
                     },
                 },
@@ -1282,11 +1308,14 @@ class Walls {
 
             this._innerWalls = this._innerWalls || [];
             this._innerWalls.push(wallSegment);
-        } else {
-            // Handle walls with crossings
-            const wallSegments = [];
-            let currentStart = { ...startPoint };
+            return;
+        }
 
+        // Handle walls with crossings or other cases
+        const wallSegments = [];
+        let currentStart = { ...startPoint };
+
+        if (intersections.length > 0) {
             intersections.forEach((intersection, index) => {
                 const segment = {
                     start: { ...currentStart },
@@ -1296,7 +1325,13 @@ class Walls {
                     attachments: {
                         start:
                             index === 0
-                                ? null
+                                ? {
+                                      point: { ...currentStart },
+                                      wallIndex: startOnPolygon
+                                          ? startOnPolygon.wallIndex
+                                          : null,
+                                      isOuter: true,
+                                  }
                                 : {
                                       point: { ...currentStart },
                                       wallIndex:
@@ -1319,42 +1354,86 @@ class Walls {
                 };
 
                 wallSegments.push(segment);
-
-                if (!intersection.isOuter && this._innerWalls) {
-                    this.splitInnerWallAtIntersection(
-                        intersection.wallIndex,
-                        intersection.point
-                    );
-                }
-
                 currentStart = { ...intersection.point };
             });
 
-            // Add final segment if needed
-            if (intersections.length > 0) {
-                wallSegments.push({
-                    start: { ...currentStart },
-                    end: { ...endPoint },
-                    isInner: true,
-                    alignment: alignment,
-                    attachments: {
-                        start: {
-                            point: { ...currentStart },
-                            wallIndex:
-                                intersections[intersections.length - 1]
-                                    .wallIndex,
-                            isOuter:
-                                intersections[intersections.length - 1].isOuter,
-                        },
-                        end: null,
+            // Add final segment
+            wallSegments.push({
+                start: { ...currentStart },
+                end: { ...endPoint },
+                isInner: true,
+                alignment: alignment,
+                attachments: {
+                    start: {
+                        point: { ...currentStart },
+                        wallIndex:
+                            intersections[intersections.length - 1].wallIndex,
+                        isOuter:
+                            intersections[intersections.length - 1].isOuter,
                     },
-                    helpers: [],
-                });
-            }
-
-            this._innerWalls = this._innerWalls || [];
-            this._innerWalls.push(...wallSegments);
+                    end: {
+                        point: { ...endPoint },
+                        wallIndex: endOnPolygon ? endOnPolygon.wallIndex : null,
+                        isOuter: true,
+                    },
+                },
+                helpers: [],
+            });
+        } else {
+            // No intersections, create single segment
+            wallSegments.push({
+                start: { ...startPoint },
+                end: { ...endPoint },
+                isInner: true,
+                alignment: alignment,
+                attachments: {
+                    start: {
+                        point: { ...startPoint },
+                        wallIndex: startOnPolygon
+                            ? startOnPolygon.wallIndex
+                            : null,
+                        isOuter: true,
+                    },
+                    end: {
+                        point: { ...endPoint },
+                        wallIndex: endOnPolygon ? endOnPolygon.wallIndex : null,
+                        isOuter: true,
+                    },
+                },
+                helpers: [],
+            });
         }
+
+        this._innerWalls = this._innerWalls || [];
+        this._innerWalls.push(...wallSegments);
+    }
+
+    // Add this helper method to check if a point is on a polygon wall
+    isPointOnPolygonWall(point) {
+        for (let i = 0; i < this._points.length - 1; i++) {
+            const start = this._points[i];
+            const end = this._points[i + 1];
+            const result = this.pointToLineDistance(
+                point.x,
+                point.y,
+                start.x,
+                start.y,
+                end.x,
+                end.y
+            );
+
+            if (
+                result.distance < 0.1 &&
+                result.param >= 0 &&
+                result.param <= 1
+            ) {
+                return {
+                    wallIndex: i,
+                    param: result.param,
+                };
+            }
+        }
+        return null;
     }
 
     // Add this helper method to check if a wall crosses the polygon
