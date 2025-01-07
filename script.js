@@ -1537,6 +1537,20 @@ class Walls {
 
     findAllIntersections(start, end) {
         const intersections = [];
+        const MIN_SEGMENT_LENGTH = 3; // Minimum length for wall segments
+
+        // Function to check if a point is too close to start or end
+        const isTooClose = (point) => {
+            const distToStart = Math.hypot(
+                point.x - start.x,
+                point.y - start.y
+            );
+            const distToEnd = Math.hypot(point.x - end.x, point.y - end.y);
+            return (
+                distToStart < MIN_SEGMENT_LENGTH ||
+                distToEnd < MIN_SEGMENT_LENGTH
+            );
+        };
 
         // Check intersections with outer walls
         for (let i = 0; i < this._points.length - 1; i++) {
@@ -1548,11 +1562,16 @@ class Walls {
             );
 
             if (result && result.onLine1 && result.onLine2) {
-                intersections.push({
-                    point: { x: result.x, y: result.y },
-                    wallIndex: i,
-                    isOuter: true,
-                });
+                const intersectionPoint = { x: result.x, y: result.y };
+
+                // Only add intersection if it's not too close to start or end points
+                if (!isTooClose(intersectionPoint)) {
+                    intersections.push({
+                        point: intersectionPoint,
+                        wallIndex: i,
+                        isOuter: true,
+                    });
+                }
             }
         }
 
@@ -1567,11 +1586,16 @@ class Walls {
                 );
 
                 if (result && result.onLine1 && result.onLine2) {
-                    intersections.push({
-                        point: { x: result.x, y: result.y },
-                        wallIndex: index,
-                        isOuter: false,
-                    });
+                    const intersectionPoint = { x: result.x, y: result.y };
+
+                    // Only add intersection if it's not too close to start or end points
+                    if (!isTooClose(intersectionPoint)) {
+                        intersections.push({
+                            point: intersectionPoint,
+                            wallIndex: index,
+                            isOuter: false,
+                        });
+                    }
                 }
             });
         }
