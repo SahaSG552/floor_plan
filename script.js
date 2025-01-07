@@ -1251,82 +1251,161 @@ class Walls {
             return distA - distB;
         });
 
-        // Create wall segments for each section
-        const wallSegments = [];
-        let currentStart = { ...startPoint };
+        // Check if the wall only connects to the outer polygon at two points
+        const outerIntersections = intersections.filter((int) => int.isOuter);
+        const isSimpleConnection =
+            outerIntersections.length === 2 &&
+            intersections.length === 2 &&
+            !this.wallCrossesPolygon(startPoint, endPoint);
 
-        intersections.forEach((intersection, index) => {
-            // Create a wall segment
-            const segment = {
-                start: { ...currentStart },
-                end: { ...intersection.point },
-                isInner: true,
-                alignment: alignment,
-                attachments: {
-                    start:
-                        index === 0
-                            ? null
-                            : {
-                                  point: { ...currentStart },
-                                  wallIndex: intersections[index - 1].wallIndex,
-                                  isOuter: intersections[index - 1].isOuter,
-                              },
-                    end: {
-                        point: { ...intersection.point },
-                        wallIndex: intersection.wallIndex,
-                        isOuter: intersection.isOuter,
-                    },
-                },
-                helpers: [
-                    {
-                        x: intersection.point.x,
-                        y: intersection.point.y,
-                        type: "intersection",
-                    },
-                ],
-            };
-
-            wallSegments.push(segment);
-
-            // If this intersection is with an inner wall, split the intersected wall
-            if (!intersection.isOuter && this._innerWalls) {
-                this.splitInnerWallAtIntersection(
-                    intersection.wallIndex,
-                    intersection.point
-                );
-            }
-
-            currentStart = { ...intersection.point };
-        });
-
-        // Add final segment if needed
-        if (intersections.length > 0) {
-            const lastSegment = {
-                start: { ...currentStart },
+        if (isSimpleConnection) {
+            // Add a single wall segment without extensions
+            const wallSegment = {
+                start: { ...startPoint },
                 end: { ...endPoint },
                 isInner: true,
                 alignment: alignment,
                 attachments: {
                     start: {
-                        point: { ...currentStart },
-                        wallIndex:
-                            intersections[intersections.length - 1].wallIndex,
-                        isOuter:
-                            intersections[intersections.length - 1].isOuter,
+                        point: { ...startPoint },
+                        wallIndex: outerIntersections[0].wallIndex,
+                        isOuter: true,
                     },
-                    end: null,
+                    end: {
+                        point: { ...endPoint },
+                        wallIndex: outerIntersections[1].wallIndex,
+                        isOuter: true,
+                    },
                 },
                 helpers: [],
             };
-            wallSegments.push(lastSegment);
+
+            this._innerWalls = this._innerWalls || [];
+            this._innerWalls.push(wallSegment);
+        } else {
+            // Handle walls with crossings
+            const wallSegments = [];
+            let currentStart = { ...startPoint };
+
+            intersections.forEach((intersection, index) => {
+                const segment = {
+                    start: { ...currentStart },
+                    end: { ...intersection.point },
+                    isInner: true,
+                    alignment: alignment,
+                    attachments: {
+                        start:
+                            index === 0
+                                ? null
+                                : {
+                                      point: { ...currentStart },
+                                      wallIndex:
+                                          intersections[index - 1].wallIndex,
+                                      isOuter: intersections[index - 1].isOuter,
+                                  },
+                        end: {
+                            point: { ...intersection.point },
+                            wallIndex: intersection.wallIndex,
+                            isOuter: intersection.isOuter,
+                        },
+                    },
+                    helpers: [
+                        {
+                            x: intersection.point.x,
+                            y: intersection.point.y,
+                            type: "intersection",
+                        },
+                    ],
+                };
+
+                wallSegments.push(segment);
+
+                if (!intersection.isOuter && this._innerWalls) {
+                    this.splitInnerWallAtIntersection(
+                        intersection.wallIndex,
+                        intersection.point
+                    );
+                }
+
+                currentStart = { ...intersection.point };
+            });
+
+            // Add final segment if needed
+            if (intersections.length > 0) {
+                wallSegments.push({
+                    start: { ...currentStart },
+                    end: { ...endPoint },
+                    isInner: true,
+                    alignment: alignment,
+                    attachments: {
+                        start: {
+                            point: { ...currentStart },
+                            wallIndex:
+                                intersections[intersections.length - 1]
+                                    .wallIndex,
+                            isOuter:
+                                intersections[intersections.length - 1].isOuter,
+                        },
+                        end: null,
+                    },
+                    helpers: [],
+                });
+            }
+
+            this._innerWalls = this._innerWalls || [];
+            this._innerWalls.push(...wallSegments);
+        }
+    }
+
+    // Add this helper method to check if a wall crosses the polygon
+    wallCrossesPolygon(start, end) {
+        const numPoints = this._points.length - 1;
+        let crossings = 0;
+
+        for (let i = 0; i < numPoints; i++) {
+            const wallStart = this._points[i];
+            const wallEnd = this._points[i + 1];
+
+            const intersection = this.lineIntersection(
+                start,
+                end,
+                wallStart,
+                wallEnd
+            );
+
+            if (intersection && intersection.onLine1 && intersection.onLine2) {
+                // Don't count intersections at the endpoints
+                const isEndpoint =
+                    (Math.abs(intersection.x - start.x) < 0.001 &&
+                        Math.abs(intersection.y - start.y) < 0.001) ||
+                    (Math.abs(intersection.x - end.x) < 0.001 &&
+                        Math.abs(intersection.y - end.y) < 0.001);
+
+                if (!isEndpoint) {
+                    crossings++;
+                }
+            }
         }
 
-        this._innerWalls = this._innerWalls || [];
-        this._innerWalls.push(...wallSegments);
+        return crossings > 0;
     }
 
     splitInnerWallAtIntersection(wallIndex, intersectionPoint) {
         const wall = this._innerWalls[wallIndex];
+        const MIN_SEGMENT_LENGTH = 3; // Minimum length in pixels for a wall segment
+
+        // Calculate distances from intersection to endpoints
+        const distToStart = this.getDistance(intersectionPoint, wall.start);
+        const distToEnd = this.getDistance(intersectionPoint, wall.end);
+        const totalLength = this.getDistance(wall.start, wall.end);
+
+        // If either segment would be too short, don't split
+        if (
+            distToStart < MIN_SEGMENT_LENGTH ||
+            distToEnd < MIN_SEGMENT_LENGTH
+        ) {
+            return;
+        }
 
         // Create two new wall segments
         const segment1 = {
@@ -1367,8 +1446,14 @@ class Walls {
             ),
         };
 
-        // Replace the original wall with the two new segments
-        this._innerWalls.splice(wallIndex, 1, segment1, segment2);
+        // Only replace the original wall if both segments are long enough
+        if (
+            distToStart >= MIN_SEGMENT_LENGTH &&
+            distToEnd >= MIN_SEGMENT_LENGTH
+        ) {
+            this._innerWalls.splice(wallIndex, 1, segment1, segment2);
+            console.log(`Split ${this._innerWalls} wall at intersection`);
+        }
     }
 
     findAllIntersections(start, end) {
