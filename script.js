@@ -144,8 +144,6 @@ class Walls {
         this._dragStartPoint = null;
         this._originalThickness = null;
         this._originalWallPoints = null;
-        this._rooms = new Map(); // Map of room ID to Room instance
-        this._wallSegments = new Map();
     }
 
     // Getters
@@ -218,108 +216,11 @@ class Walls {
         return this._selectedWallIndex;
     }
 
-    addWall(start, end) {
-        const newWall = new WallSegment(start, end, this._thickness);
-
-        // Check for intersections with existing walls
-        const intersections = this.findWallIntersections(newWall);
-
-        if (intersections.length > 0) {
-            // Sort intersections by distance from start
-            intersections.sort((a, b) => {
-                const distA = this.getDistance(start, a.point);
-                const distB = this.getDistance(start, b.point);
-                return distA - distB;
-            });
-
-            // Create wall segments
-            let currentPoint = start;
-            const segments = [];
-
-            intersections.forEach((intersection) => {
-                segments.push(
-                    new WallSegment(
-                        currentPoint,
-                        intersection.point,
-                        this._thickness
-                    )
-                );
-                currentPoint = intersection.point;
-            });
-
-            // Add final segment
-            segments.push(new WallSegment(currentPoint, end, this._thickness));
-
-            // Update rooms
-            this.updateRooms(segments);
-
-            return segments;
-        } else {
-            // No intersections, add single wall
-            this._wallSegments.set(newWall.id, newWall);
-            this.updateRooms([newWall]);
-            return [newWall];
-        }
-    }
-
-    updateRooms(newWalls) {
-        // Find closed polygons formed by walls
-        const polygons = this.findClosedPolygons(newWalls);
-
-        polygons.forEach((polygon) => {
-            // Create new room if polygon is valid
-            if (this.isValidRoom(polygon)) {
-                const room = new Room(polygon);
-                this._rooms.set(room.id, room);
-
-                // Update wall segments with room association
-                this.updateWallRoomAssociations(room);
-            }
-        });
-    }
-
-    findClosedPolygons(newWalls) {
-        // Implementation to find closed polygons formed by walls
-        // This would use a graph-based approach to find cycles
-        // Returns array of point arrays representing closed polygons
-    }
-
-    isValidRoom(polygon) {
-        // Check if polygon forms a valid room
-        // Minimum area, no self-intersections, etc.
-        const minArea = 1; // Minimum area in square units
-        const room = new Room(polygon);
-        return room.area >= minArea && !this.hasIntersectingWalls(polygon);
-    }
-
-    updateWallRoomAssociations(room) {
-        // Update which rooms each wall segment belongs to
-        this._wallSegments.forEach((wall) => {
-            if (this.isWallPartOfRoom(wall, room)) {
-                wall.addRoom(room);
-            }
-        });
-    }
-
     // Helper methods...
     getDistance(point1, point2) {
         return Math.sqrt(
             Math.pow(point2.x - point1.x, 2) + Math.pow(point2.y - point1.y, 2)
         );
-    }
-
-    findWallIntersections(newWall) {
-        const intersections = [];
-        this._wallSegments.forEach((existingWall) => {
-            const intersection = newWall.intersectsWith(existingWall);
-            if (intersection) {
-                intersections.push({
-                    point: intersection,
-                    wall: existingWall,
-                });
-            }
-        });
-        return intersections;
     }
 
     selectWall(index) {
@@ -522,43 +423,8 @@ class Walls {
             });
         }
 
-        // Validate the new configuration
-        if (this.hasInvalidConfiguration()) {
-            // Rollback changes if the new configuration is invalid
-            this._points = originalPoints;
-            if (this._innerWalls) {
-                this._innerWalls = originalInnerWalls;
-            }
-            return false;
-        }
-
         this.logState("Wall position updated");
         return true;
-    }
-
-    // Helper method to check for invalid configurations
-    hasInvalidConfiguration() {
-        // Check for self-intersections
-        for (let i = 0; i < this._points.length - 1; i++) {
-            for (let j = i + 2; j < this._points.length - 1; j++) {
-                const intersection = this.lineIntersection(
-                    this._points[i],
-                    this._points[i + 1],
-                    this._points[j],
-                    this._points[j + 1]
-                );
-                if (
-                    intersection &&
-                    intersection.onLine1 &&
-                    intersection.onLine2
-                ) {
-                    return true;
-                }
-            }
-        }
-
-        // Add more validation checks as needed
-        return false;
     }
 
     isPointOnWallSegment(point, wallStart, wallEnd) {
@@ -833,52 +699,6 @@ class Walls {
         }
 
         return end;
-    }
-
-    // Add this new method to generate alignment lines
-    _generateAlignmentLines(start, end) {
-        const lines = [];
-
-        // Add parallel lines (inside and outside)
-        const dx = end.x - start.x;
-        const dy = end.y - start.y;
-        const length = Math.sqrt(dx * dx + dy * dy);
-        const unitX = dx / length;
-        const unitY = dy / length;
-
-        // Perpendicular vector
-        const perpX = -unitY;
-        const perpY = unitX;
-
-        // Generate parallel lines at different offsets
-        [-this._thickness, 0, this._thickness].forEach((offset) => {
-            lines.push({
-                start: {
-                    x: start.x + perpX * offset,
-                    y: start.y + perpY * offset,
-                },
-                end: {
-                    x: end.x + perpX * offset,
-                    y: end.y + perpY * offset,
-                },
-            });
-        });
-
-        // Add perpendicular lines at endpoints
-        [start, end].forEach((point) => {
-            lines.push({
-                start: {
-                    x: point.x - perpX * this._thickness,
-                    y: point.y - perpY * this._thickness,
-                },
-                end: {
-                    x: point.x + perpX * this._thickness,
-                    y: point.y + perpY * this._thickness,
-                },
-            });
-        });
-
-        return lines;
     }
 
     findNearestWall(x, y) {
