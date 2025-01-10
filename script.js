@@ -338,91 +338,88 @@ class Walls {
         // Update inner walls
         if (this._innerWalls) {
             this._innerWalls.forEach((wall) => {
-                // Update outer wall attachments
-                if (wall.attachments.start && wall.attachments.start.isOuter) {
+                // Update start attachment
+                if (
+                    wall.attachments.start &&
+                    wall.attachments.start.isOuter &&
+                    wall.attachments.start.wallIndex !== undefined
+                ) {
                     const startWallIndex = wall.attachments.start.wallIndex;
-                    // Use stored param or calculate it if not available
-                    const param =
-                        wall.attachments.start.param ||
-                        this.getParametricPosition(
+                    // Check if the original points exist at this index
+                    if (
+                        originalPoints[startWallIndex] &&
+                        originalPoints[
+                            (startWallIndex + 1) % this._points.length
+                        ]
+                    ) {
+                        const param = this.getParametricPosition(
                             wall.start,
                             originalPoints[startWallIndex],
                             originalPoints[
                                 (startWallIndex + 1) % this._points.length
                             ]
                         );
-                    // Store the param for future use
-                    wall.attachments.start.param = param;
 
-                    const startWall = {
-                        start: this._points[startWallIndex],
-                        end: this._points[
-                            (startWallIndex + 1) % this._points.length
-                        ],
-                    };
-                    wall.start = {
-                        x:
-                            startWall.start.x +
-                            param * (startWall.end.x - startWall.start.x),
-                        y:
-                            startWall.start.y +
-                            param * (startWall.end.y - startWall.start.y),
-                    };
+                        const startWall = {
+                            start: this._points[startWallIndex],
+                            end: this._points[
+                                (startWallIndex + 1) % this._points.length
+                            ],
+                        };
+
+                        wall.start = {
+                            x:
+                                startWall.start.x +
+                                param * (startWall.end.x - startWall.start.x),
+                            y:
+                                startWall.start.y +
+                                param * (startWall.end.y - startWall.start.y),
+                        };
+                    }
                 }
 
-                if (wall.attachments.end && wall.attachments.end.isOuter) {
+                // Update end attachment
+                if (
+                    wall.attachments.end &&
+                    wall.attachments.end.isOuter &&
+                    wall.attachments.end.wallIndex !== undefined
+                ) {
                     const endWallIndex = wall.attachments.end.wallIndex;
-                    // Use stored param or calculate it if not available
-                    const param =
-                        wall.attachments.end.param ||
-                        this.getParametricPosition(
+                    // Check if the original points exist at this index
+                    if (
+                        originalPoints[endWallIndex] &&
+                        originalPoints[(endWallIndex + 1) % this._points.length]
+                    ) {
+                        const param = this.getParametricPosition(
                             wall.end,
                             originalPoints[endWallIndex],
                             originalPoints[
                                 (endWallIndex + 1) % this._points.length
                             ]
                         );
-                    // Store the param for future use
-                    wall.attachments.end.param = param;
 
-                    const endWall = {
-                        start: this._points[endWallIndex],
-                        end: this._points[
-                            (endWallIndex + 1) % this._points.length
-                        ],
-                    };
-                    wall.end = {
-                        x:
-                            endWall.start.x +
-                            param * (endWall.end.x - endWall.start.x),
-                        y:
-                            endWall.start.y +
-                            param * (endWall.end.y - endWall.start.y),
-                    };
-                }
-            });
+                        const endWall = {
+                            start: this._points[endWallIndex],
+                            end: this._points[
+                                (endWallIndex + 1) % this._points.length
+                            ],
+                        };
 
-            // Update inner wall connections
-            this._innerWalls.forEach((wall) => {
-                if (wall.attachments.start && wall.attachments.start.isInner) {
-                    const connection = this.findNearestInnerWallPoint(
-                        wall.start
-                    );
-                    if (connection) {
-                        wall.start = { ...connection.point };
+                        wall.end = {
+                            x:
+                                endWall.start.x +
+                                param * (endWall.end.x - endWall.start.x),
+                            y:
+                                endWall.start.y +
+                                param * (endWall.end.y - endWall.start.y),
+                        };
                     }
                 }
-                if (wall.attachments.end && wall.attachments.end.isInner) {
-                    const connection = this.findNearestInnerWallPoint(wall.end);
-                    if (connection) {
-                        wall.end = { ...connection.point };
-                    }
-                }
-            });
 
-            // Update all inner wall intersections
-            this._innerWalls.forEach((wall) => {
-                wall.helpers = this.recalculateHelperPoints(wall);
+                // Update helper points
+                if (wall.helpers && wall.helpers.length > 0) {
+                    wall.helpers = this.recalculateHelperPoints(wall);
+                }
             });
         }
 
@@ -510,89 +507,9 @@ class Walls {
 
         return tangentPoints;
     }
-    checkInnerWallConnection(startPoint, endPoint) {
-        // Check if the end point is near any existing inner wall alignment line
-        for (let wall of this._innerWalls) {
-            const alignmentLine = {
-                start: wall.alignmentStart,
-                end: wall.alignmentEnd,
-            };
-
-            // Calculate distance from end point to alignment line
-            const distance = this.pointToLineDistance(
-                endPoint,
-                alignmentLine.start,
-                alignmentLine.end
-            );
-
-            if (distance < this._magnetDistance) {
-                // Project the point onto the alignment line
-                const projectedPoint = this.projectPointOnLine(
-                    endPoint,
-                    alignmentLine.start,
-                    alignmentLine.end
-                );
-
-                // Check if the projected point lies between the start and end of the alignment line
-                if (
-                    this.isPointOnLineSegment(
-                        projectedPoint,
-                        alignmentLine.start,
-                        alignmentLine.end
-                    )
-                ) {
-                    return projectedPoint;
-                }
-            }
-        }
-        return null;
-    }
-
-    // Helper method to calculate point to line distance
-    pointToLineDistance(point, lineStart, lineEnd) {
-        const numerator = Math.abs(
-            (lineEnd.y - lineStart.y) * point.x -
-                (lineEnd.x - lineStart.x) * point.y +
-                lineEnd.x * lineStart.y -
-                lineEnd.y * lineStart.x
-        );
-        const denominator = Math.sqrt(
-            Math.pow(lineEnd.y - lineStart.y, 2) +
-                Math.pow(lineEnd.x - lineStart.x, 2)
-        );
-        return numerator / denominator;
-    }
-
-    // Helper method to project a point onto a line
-    projectPointOnLine(point, lineStart, lineEnd) {
-        const dx = lineEnd.x - lineStart.x;
-        const dy = lineEnd.y - lineStart.y;
-        const t =
-            ((point.x - lineStart.x) * dx + (point.y - lineStart.y) * dy) /
-            (dx * dx + dy * dy);
-
-        return {
-            x: lineStart.x + t * dx,
-            y: lineStart.y + t * dy,
-        };
-    }
-
-    // Helper method to check if a point lies on a line segment
-    isPointOnLineSegment(point, lineStart, lineEnd) {
-        const d1 = this.distance(point, lineStart);
-        const d2 = this.distance(point, lineEnd);
-        const lineLength = this.distance(lineStart, lineEnd);
-        const buffer = 0.1; // Small buffer for floating-point precision
-
-        return Math.abs(d1 + d2 - lineLength) < buffer;
-    }
 
     findMagnetPoint(x, y, useOrthoSnap = false) {
         let magnetPoint = { x, y };
-        const innerConnection = this.checkInnerWallConnections({ x, y });
-        if (innerConnection) {
-            return innerConnection;
-        }
         let minDistance = Infinity;
         let foundMagnet = false;
 
@@ -654,7 +571,49 @@ class Walls {
         let minDistance = Infinity;
         let foundMagnet = false;
 
-        // Check inner walls first
+        // Check endpoints of all walls
+        for (let i = 0; i < this._points.length - 1; i++) {
+            const start = this._points[i];
+            const end = this._points[i + 1];
+
+            // Check start point
+            const startDist = this.getDistance({ x, y }, start);
+            if (startDist < this._magnetDistance && startDist < minDistance) {
+                magnetPoint = { ...start };
+                minDistance = startDist;
+                foundMagnet = true;
+            }
+
+            // Check end point
+            const endDist = this.getDistance({ x, y }, end);
+            if (endDist < this._magnetDistance && endDist < minDistance) {
+                magnetPoint = { ...end };
+                minDistance = endDist;
+                foundMagnet = true;
+            }
+
+            // Check wall alignment
+            const result = this.pointToLineDistance(
+                x,
+                y,
+                start.x,
+                start.y,
+                end.x,
+                end.y
+            );
+            if (
+                result.distance < this._magnetDistance &&
+                result.param >= 0 &&
+                result.param <= 1 &&
+                result.distance < minDistance
+            ) {
+                magnetPoint = result.closestPoint;
+                minDistance = result.distance;
+                foundMagnet = true;
+            }
+        }
+
+        // Check inner walls if they exist
         if (this._innerWalls) {
             this._innerWalls.forEach((wall) => {
                 // Check wall endpoints
@@ -675,8 +634,8 @@ class Walls {
                     foundMagnet = true;
                 }
 
-                // Check wall alignment line
-                const distanceInfo = this.pointToLineDistance(
+                // Check wall alignment
+                const result = this.pointToLineDistance(
                     x,
                     y,
                     wall.start.x,
@@ -684,60 +643,17 @@ class Walls {
                     wall.end.x,
                     wall.end.y
                 );
-
                 if (
-                    distanceInfo.distance < this._magnetDistance &&
-                    distanceInfo.param >= 0 &&
-                    distanceInfo.param <= 1 &&
-                    distanceInfo.distance < minDistance
+                    result.distance < this._magnetDistance &&
+                    result.param >= 0 &&
+                    result.param <= 1 &&
+                    result.distance < minDistance
                 ) {
-                    magnetPoint = { ...distanceInfo.closestPoint };
-                    minDistance = distanceInfo.distance;
+                    magnetPoint = result.closestPoint;
+                    minDistance = result.distance;
                     foundMagnet = true;
                 }
             });
-        }
-
-        // Check outer walls
-        for (let i = 0; i < this._points.length - 1; i++) {
-            const start = this._points[i];
-            const end = this._points[i + 1];
-
-            // Check endpoints
-            const startDist = this.getDistance({ x, y }, start);
-            if (startDist < this._magnetDistance && startDist < minDistance) {
-                magnetPoint = { ...start };
-                minDistance = startDist;
-                foundMagnet = true;
-            }
-
-            const endDist = this.getDistance({ x, y }, end);
-            if (endDist < this._magnetDistance && endDist < minDistance) {
-                magnetPoint = { ...end };
-                minDistance = endDist;
-                foundMagnet = true;
-            }
-
-            // Check wall alignment
-            const distanceInfo = this.pointToLineDistance(
-                x,
-                y,
-                start.x,
-                start.y,
-                end.x,
-                end.y
-            );
-
-            if (
-                distanceInfo.distance < this._magnetDistance &&
-                distanceInfo.param >= 0 &&
-                distanceInfo.param <= 1 &&
-                distanceInfo.distance < minDistance
-            ) {
-                magnetPoint = { ...distanceInfo.closestPoint };
-                minDistance = distanceInfo.distance;
-                foundMagnet = true;
-            }
         }
 
         return {
@@ -745,50 +661,6 @@ class Walls {
             distance: minDistance,
             found: foundMagnet,
         };
-    }
-
-    checkInnerWallConnections(point) {
-        if (!this._innerWalls) return null;
-
-        let closestConnection = null;
-        let minDistance = this._magnetDistance;
-
-        this._innerWalls.forEach((wall) => {
-            // Check endpoints
-            const startDist = this.getDistance(point, wall.start);
-            const endDist = this.getDistance(point, wall.end);
-
-            if (startDist < minDistance) {
-                closestConnection = { ...wall.start };
-                minDistance = startDist;
-            }
-
-            if (endDist < minDistance) {
-                closestConnection = { ...wall.end };
-                minDistance = endDist;
-            }
-
-            // Check alignment line
-            const result = this.pointToLineDistance(
-                point.x,
-                point.y,
-                wall.start.x,
-                wall.start.y,
-                wall.end.x,
-                wall.end.y
-            );
-
-            if (
-                result.distance < minDistance &&
-                result.param >= 0 &&
-                result.param <= 1
-            ) {
-                closestConnection = result.closestPoint;
-                minDistance = result.distance;
-            }
-        });
-
-        return closestConnection;
     }
 
     calculateOrthoPoint(start, end, snapThreshold = 3) {
@@ -965,11 +837,10 @@ class Walls {
 
         const dx = px - xx;
         const dy = py - yy;
-
         return {
             distance: Math.sqrt(dx * dx + dy * dy),
             closestPoint: { x: xx, y: yy },
-            param: param,
+            param: param, // Add parameter value to determine position along line
         };
     }
 
@@ -1208,129 +1079,153 @@ class Walls {
     }
 
     addInnerWall(startPoint, endPoint, alignment) {
-        // Check if either point connects to an existing inner wall
-        const startInnerConnection = this.checkInnerWallConnections(startPoint);
-        const endInnerConnection = this.checkInnerWallConnections(endPoint);
+        // Find all intersections with outer and inner walls
+        const intersections = this.findAllIntersections(startPoint, endPoint);
 
-        // Check if points are on polygon walls
+        // Sort intersections by distance from start point
+        intersections.sort((a, b) => {
+            const distA = Math.hypot(
+                a.point.x - startPoint.x,
+                a.point.y - startPoint.y
+            );
+            const distB = Math.hypot(
+                b.point.x - startPoint.x,
+                b.point.y - startPoint.y
+            );
+            return distA - distB;
+        });
+
+        // Check if start point is on a polygon wall
         const startOnPolygon = this.isPointOnPolygonWall(startPoint);
         const endOnPolygon = this.isPointOnPolygonWall(endPoint);
 
-        // Create wall segment with proper attachments
-        const wallSegment = {
-            start: startInnerConnection || { ...startPoint },
-            end: endInnerConnection || { ...endPoint },
-            isInner: true,
-            alignment: alignment,
-            attachments: {
-                start: startInnerConnection
-                    ? { point: startInnerConnection, isInner: true }
-                    : startOnPolygon
-                    ? {
-                          point: { ...startPoint },
-                          wallIndex: startOnPolygon.wallIndex,
-                          isOuter: true,
-                      }
-                    : null,
-                end: endInnerConnection
-                    ? { point: endInnerConnection, isInner: true }
-                    : endOnPolygon
-                    ? {
-                          point: { ...endPoint },
-                          wallIndex: endOnPolygon.wallIndex,
-                          isOuter: true,
-                      }
-                    : null,
-            },
-            helpers: [],
-        };
+        // If both points are on polygon walls and there are no other intersections
+        if (
+            startOnPolygon &&
+            endOnPolygon &&
+            !this.wallCrossesPolygon(startPoint, endPoint)
+        ) {
+            // Add a single wall segment without extensions
+            const wallSegment = {
+                start: { ...startPoint },
+                end: { ...endPoint },
+                isInner: true,
+                alignment: alignment,
+                attachments: {
+                    start: {
+                        point: { ...startPoint },
+                        wallIndex: startOnPolygon.wallIndex,
+                        isOuter: true,
+                    },
+                    end: {
+                        point: { ...endPoint },
+                        wallIndex: endOnPolygon.wallIndex,
+                        isOuter: true,
+                    },
+                },
+                helpers: [],
+            };
 
-        // Find intersections with other walls
-        const intersections = this.findAllIntersections(startPoint, endPoint);
-        if (intersections.length > 0) {
-            // Add intersection points as helpers
-            wallSegment.helpers = intersections.map((intersection) => ({
-                x: intersection.point.x,
-                y: intersection.point.y,
-                type: "intersection",
-            }));
+            this._innerWalls = this._innerWalls || [];
+            this._innerWalls.push(wallSegment);
+            return;
         }
 
-        // Initialize inner walls array if it doesn't exist
+        // Handle walls with crossings or other cases
+        const wallSegments = [];
+        let currentStart = { ...startPoint };
+
+        if (intersections.length > 0) {
+            intersections.forEach((intersection, index) => {
+                const segment = {
+                    start: { ...currentStart },
+                    end: { ...intersection.point },
+                    isInner: true,
+                    alignment: alignment,
+                    attachments: {
+                        start:
+                            index === 0
+                                ? {
+                                      point: { ...currentStart },
+                                      wallIndex: startOnPolygon
+                                          ? startOnPolygon.wallIndex
+                                          : null,
+                                      isOuter: true,
+                                  }
+                                : {
+                                      point: { ...currentStart },
+                                      wallIndex:
+                                          intersections[index - 1].wallIndex,
+                                      isOuter: intersections[index - 1].isOuter,
+                                  },
+                        end: {
+                            point: { ...intersection.point },
+                            wallIndex: intersection.wallIndex,
+                            isOuter: intersection.isOuter,
+                        },
+                    },
+                    helpers: [
+                        {
+                            x: intersection.point.x,
+                            y: intersection.point.y,
+                            type: "intersection",
+                        },
+                    ],
+                };
+
+                wallSegments.push(segment);
+                currentStart = { ...intersection.point };
+            });
+
+            // Add final segment
+            wallSegments.push({
+                start: { ...currentStart },
+                end: { ...endPoint },
+                isInner: true,
+                alignment: alignment,
+                attachments: {
+                    start: {
+                        point: { ...currentStart },
+                        wallIndex:
+                            intersections[intersections.length - 1].wallIndex,
+                        isOuter:
+                            intersections[intersections.length - 1].isOuter,
+                    },
+                    end: {
+                        point: { ...endPoint },
+                        wallIndex: endOnPolygon ? endOnPolygon.wallIndex : null,
+                        isOuter: true,
+                    },
+                },
+                helpers: [],
+            });
+        } else {
+            // No intersections, create single segment
+            wallSegments.push({
+                start: { ...startPoint },
+                end: { ...endPoint },
+                isInner: true,
+                alignment: alignment,
+                attachments: {
+                    start: {
+                        point: { ...startPoint },
+                        wallIndex: startOnPolygon
+                            ? startOnPolygon.wallIndex
+                            : null,
+                        isOuter: true,
+                    },
+                    end: {
+                        point: { ...endPoint },
+                        wallIndex: endOnPolygon ? endOnPolygon.wallIndex : null,
+                        isOuter: true,
+                    },
+                },
+                helpers: [],
+            });
+        }
+
         this._innerWalls = this._innerWalls || [];
-        this._innerWalls.push(wallSegment);
-
-        // Update connections for all inner walls
-        this.updateInnerWallConnections();
-    }
-
-    // Add this new method to update inner wall connections
-    updateInnerWallConnections() {
-        if (!this._innerWalls) return;
-
-        this._innerWalls.forEach((wall) => {
-            // Update start attachment if it's an inner wall connection
-            if (wall.attachments.start && wall.attachments.start.isInner) {
-                const connection = this.findNearestInnerWallPoint(wall.start);
-                if (connection) {
-                    wall.start = { ...connection.point };
-                    wall.attachments.start.point = { ...connection.point };
-                }
-            }
-
-            // Update end attachment if it's an inner wall connection
-            if (wall.attachments.end && wall.attachments.end.isInner) {
-                const connection = this.findNearestInnerWallPoint(wall.end);
-                if (connection) {
-                    wall.end = { ...connection.point };
-                    wall.attachments.end.point = { ...connection.point };
-                }
-            }
-        });
-    }
-
-    // Add this helper method to find the nearest point on inner walls
-    findNearestInnerWallPoint(point) {
-        if (!this._innerWalls) return null;
-
-        let nearestPoint = null;
-        let minDistance = this._magnetDistance;
-
-        this._innerWalls.forEach((wall) => {
-            // Check endpoints
-            const startDist = this.getDistance(point, wall.start);
-            if (startDist < minDistance) {
-                nearestPoint = { point: wall.start, wall };
-                minDistance = startDist;
-            }
-
-            const endDist = this.getDistance(point, wall.end);
-            if (endDist < minDistance) {
-                nearestPoint = { point: wall.end, wall };
-                minDistance = endDist;
-            }
-
-            // Check alignment line
-            const distInfo = this.pointToLineDistance(
-                point.x,
-                point.y,
-                wall.start.x,
-                wall.start.y,
-                wall.end.x,
-                wall.end.y
-            );
-
-            if (
-                distInfo.distance < minDistance &&
-                distInfo.param >= 0 &&
-                distInfo.param <= 1
-            ) {
-                nearestPoint = { point: distInfo.closestPoint, wall };
-                minDistance = distInfo.distance;
-            }
-        });
-
-        return nearestPoint;
+        this._innerWalls.push(...wallSegments);
     }
 
     // Add this helper method to check if a point is on a polygon wall
