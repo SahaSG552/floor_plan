@@ -133,7 +133,7 @@ class Sofa extends Furniture {
 class Walls {
     constructor() {
         this._points = [];
-        this._thickness = 20; // Increased default thickness for better visibility
+        this._thickness = 20;
         this._isComplete = false;
         this._magnetDistance = 8;
         this._pattern = null;
@@ -159,22 +159,21 @@ class Walls {
     get magnetDistance() {
         return this._magnetDistance;
     }
-
-    // Setters with validation
     set thickness(value) {
         if (typeof value === "number" && value > 0) {
             this._thickness = value;
             this.logState("Thickness updated");
         }
     }
-
     set magnetDistance(value) {
         if (typeof value === "number" && value > 0) {
             this._magnetDistance = value;
             this.logState("Magnet distance updated");
         }
     }
-
+    get selectedWallIndex() {
+        return this._selectedWallIndex;
+    }
     addPoint(x, y) {
         const magnetPoint = this.findMagnetPoint(x, y);
 
@@ -212,11 +211,6 @@ class Walls {
         return lengths;
     }
 
-    get selectedWallIndex() {
-        return this._selectedWallIndex;
-    }
-
-    // Helper methods...
     getDistance(point1, point2) {
         return Math.sqrt(
             Math.pow(point2.x - point1.x, 2) + Math.pow(point2.y - point1.y, 2)
@@ -252,9 +246,6 @@ class Walls {
 
         // Store original state for potential rollback
         const originalPoints = [...this._points];
-        const originalInnerWalls = this._innerWalls
-            ? [...this._innerWalls]
-            : [];
 
         // Get selected wall
         const start = this._points[this._selectedWallIndex];
@@ -1547,28 +1538,6 @@ class Walls {
                 }
             });
         }
-
-        // Draw alignment lines when in inner wall mode
-        if (this._isInnerWallMode) {
-            ctx.save();
-            ctx.strokeStyle = "rgba(0, 150, 255, 0.3)";
-            ctx.setLineDash([5, 5]);
-
-            for (let i = 0; i < this._points.length - 1; i++) {
-                const start = this._points[i];
-                const end = this._points[i + 1];
-                const alignmentLines = this._generateAlignmentLines(start, end);
-
-                alignmentLines.forEach((line) => {
-                    ctx.beginPath();
-                    ctx.moveTo(line.start.x, line.start.y);
-                    ctx.lineTo(line.end.x, line.end.y);
-                    ctx.stroke();
-                });
-            }
-
-            ctx.restore();
-        }
     }
 
     drawWithTemporaryPoints(ctx, tempPoints) {
@@ -1576,28 +1545,6 @@ class Walls {
         this._drawWalls(ctx, tempPoints);
     }
 
-    drawSnapPoints(ctx) {
-        // Draw regular snap points
-        this._points.forEach((point) => {
-            ctx.beginPath();
-            ctx.arc(point.x, point.y, 4, 0, Math.PI * 2);
-            ctx.fillStyle = "rgba(0, 255, 0, 0.5)";
-            ctx.fill();
-        });
-
-        // Draw tangent snap points if enabled
-        if (this._snapToTangent && this._points.length > 1) {
-            const currentPoint = { x: this._mouseX, y: this._mouseY };
-            const tangentPoints = this.findTangentPoints(currentPoint);
-
-            tangentPoints.forEach((point) => {
-                ctx.beginPath();
-                ctx.arc(point.x, point.y, 4, 0, Math.PI * 2);
-                ctx.fillStyle = "rgba(0, 150, 255, 0.5)";
-                ctx.fill();
-            });
-        }
-    }
     // Check if point is near wall segment
     isPointNearWallSegment(x, y, wallSegment) {
         const distance = this.pointToLineDistance(
@@ -1911,6 +1858,25 @@ class RoomPlanner {
         }
     }
 
+    updateEditButtonState(active = false) {
+        this._isEditButtonActive = active || this._walls.isComplete;
+        if (this._editButton) {
+            this._editButton.disabled = !this._isEditButtonActive;
+            this._editButton.classList.toggle(
+                "active",
+                this._isEditButtonActive
+            );
+        }
+
+        // Enable/disable inner wall and alignment buttons
+        this._innerWallBtn.disabled = !this._isEditButtonActive;
+        this._alignCenter.disabled = !this._isEditButtonActive;
+        this._alignLeft.disabled = !this._isEditButtonActive;
+        this._alignRight.disabled = !this._isEditButtonActive;
+
+        console.log("Edit button state:", this._isEditButtonActive);
+    }
+
     start() {
         this._ctx.clearRect(0, 0, this._canvas.width, this._canvas.height);
         this._walls.reset();
@@ -1976,11 +1942,6 @@ class RoomPlanner {
 
             const tempPoints = [...this._walls.points, magnetPoint];
             this.draw(tempPoints);
-
-            // Draw preview lines for tangent points
-            if (this._walls._snapToTangent) {
-                this.drawTangentPreviews(magnetPoint);
-            }
             return;
         }
 
@@ -2271,42 +2232,6 @@ class RoomPlanner {
         }
     }
 
-    updateEditButtonState(active = false) {
-        this._isEditButtonActive = active || this._walls.isComplete;
-        if (this._editButton) {
-            this._editButton.disabled = !this._isEditButtonActive;
-            this._editButton.classList.toggle(
-                "active",
-                this._isEditButtonActive
-            );
-        }
-
-        // Enable/disable inner wall and alignment buttons
-        this._innerWallBtn.disabled = !this._isEditButtonActive;
-        this._alignCenter.disabled = !this._isEditButtonActive;
-        this._alignLeft.disabled = !this._isEditButtonActive;
-        this._alignRight.disabled = !this._isEditButtonActive;
-
-        console.log("Edit button state:", this._isEditButtonActive);
-    }
-
-    drawTangentPreviews(point) {
-        const tangentPoints = this._walls.findTangentPoints(point);
-
-        this._ctx.save();
-        this._ctx.strokeStyle = "rgba(0, 150, 255, 0.5)";
-        this._ctx.setLineDash([5, 5]);
-
-        tangentPoints.forEach((tangentPoint) => {
-            this._ctx.beginPath();
-            this._ctx.moveTo(point.x, point.y);
-            this._ctx.lineTo(tangentPoint.x, tangentPoint.y);
-            this._ctx.stroke();
-        });
-
-        this._ctx.restore();
-    }
-
     moveSofa(mouseX, mouseY) {
         const originalPosition = {
             x: this._sofa.x,
@@ -2450,26 +2375,6 @@ class RoomPlanner {
         return false;
     }
 
-    // Add this method to check if a point is inside the polygon
-    isPointInPolygon(point) {
-        const polygon = this._walls.points;
-        let inside = false;
-
-        for (let i = 0, j = polygon.length - 1; i < polygon.length; j = i++) {
-            const xi = polygon[i].x;
-            const yi = polygon[i].y;
-            const xj = polygon[j].x;
-            const yj = polygon[j].y;
-
-            const intersect =
-                yi > point.y !== yj > point.y &&
-                point.x < ((xj - xi) * (point.y - yi)) / (yj - yi) + xi;
-
-            if (intersect) inside = !inside;
-        }
-
-        return inside;
-    }
     // Helper method to get sofa corners considering rotation
     getSofaCorners() {
         const centerX = this._sofa.x + this._sofa.width / 2;
@@ -2514,6 +2419,26 @@ class RoomPlanner {
         return (
             ua > EPSILON && ua < 1 - EPSILON && ub > EPSILON && ub < 1 - EPSILON
         );
+    }
+    // Check if a point is inside the polygon
+    isPointInPolygon(point) {
+        const polygon = this._walls.points;
+        let inside = false;
+
+        for (let i = 0, j = polygon.length - 1; i < polygon.length; j = i++) {
+            const xi = polygon[i].x;
+            const yi = polygon[i].y;
+            const xj = polygon[j].x;
+            const yj = polygon[j].y;
+
+            const intersect =
+                yi > point.y !== yj > point.y &&
+                point.x < ((xj - xi) * (point.y - yi)) / (yj - yi) + xi;
+
+            if (intersect) inside = !inside;
+        }
+
+        return inside;
     }
 
     draw(tempPoints = null) {
