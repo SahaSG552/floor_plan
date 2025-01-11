@@ -244,7 +244,7 @@ class Walls {
     updateWallPosition(x, y) {
         if (this._selectedWallIndex === -1 || !this._dragStartPoint) return;
 
-        // Store original state for potential rollback
+        // Store original points for reference
         const originalPoints = [...this._points];
 
         // Get selected wall
@@ -276,135 +276,51 @@ class Walls {
         this._points[(this._selectedWallIndex + 1) % this._points.length].y =
             newY + dy;
 
-        // Update all connected walls
-        const updatedWalls = new Set([this._selectedWallIndex]);
-        let hasChanges = true;
-
-        while (hasChanges) {
-            hasChanges = false;
-
-            // Check all walls for new intersections
-            for (let i = 0; i < this._points.length - 1; i++) {
-                if (updatedWalls.has(i)) continue;
-
-                const wallStart = this._points[i];
-                const wallEnd = this._points[i + 1];
-
-                // Check intersections with updated walls
-                for (const updatedWallIndex of updatedWalls) {
-                    const updatedWallStart = this._points[updatedWallIndex];
-                    const updatedWallEnd =
-                        this._points[
-                            (updatedWallIndex + 1) % this._points.length
-                        ];
-
-                    const intersection = this.lineIntersection(
-                        wallStart,
-                        wallEnd,
-                        updatedWallStart,
-                        updatedWallEnd
-                    );
-
-                    if (
-                        intersection &&
-                        intersection.onLine1 &&
-                        intersection.onLine2
-                    ) {
-                        // Adjust wall endpoints to intersection point
-                        if (intersection.param1 < 0.5) {
-                            wallStart.x = intersection.x;
-                            wallStart.y = intersection.y;
-                        } else {
-                            wallEnd.x = intersection.x;
-                            wallEnd.y = intersection.y;
-                        }
-
-                        updatedWalls.add(i);
-                        hasChanges = true;
-                    }
-                }
-            }
-        }
-
-        // Update inner walls
+        // After updating outer walls, update attached inner walls
         if (this._innerWalls) {
             this._innerWalls.forEach((wall) => {
-                // Update start attachment
-                if (
-                    wall.attachments.start &&
-                    wall.attachments.start.isOuter &&
-                    wall.attachments.start.wallIndex !== undefined
-                ) {
+                // Update start point if attached to an outer wall
+                if (wall.attachments.start && wall.attachments.start.isOuter) {
                     const startWallIndex = wall.attachments.start.wallIndex;
-                    // Check if the original points exist at this index
-                    if (
-                        originalPoints[startWallIndex] &&
-                        originalPoints[
+                    const param = wall.attachments.start.param;
+
+                    const startWall = {
+                        start: this._points[startWallIndex],
+                        end: this._points[
                             (startWallIndex + 1) % this._points.length
-                        ]
-                    ) {
-                        const param = this.getParametricPosition(
-                            wall.start,
-                            originalPoints[startWallIndex],
-                            originalPoints[
-                                (startWallIndex + 1) % this._points.length
-                            ]
-                        );
+                        ],
+                    };
 
-                        const startWall = {
-                            start: this._points[startWallIndex],
-                            end: this._points[
-                                (startWallIndex + 1) % this._points.length
-                            ],
-                        };
-
-                        wall.start = {
-                            x:
-                                startWall.start.x +
-                                param * (startWall.end.x - startWall.start.x),
-                            y:
-                                startWall.start.y +
-                                param * (startWall.end.y - startWall.start.y),
-                        };
-                    }
+                    wall.start = {
+                        x:
+                            startWall.start.x +
+                            param * (startWall.end.x - startWall.start.x),
+                        y:
+                            startWall.start.y +
+                            param * (startWall.end.y - startWall.start.y),
+                    };
                 }
 
-                // Update end attachment
-                if (
-                    wall.attachments.end &&
-                    wall.attachments.end.isOuter &&
-                    wall.attachments.end.wallIndex !== undefined
-                ) {
+                // Update end point if attached to an outer wall
+                if (wall.attachments.end && wall.attachments.end.isOuter) {
                     const endWallIndex = wall.attachments.end.wallIndex;
-                    // Check if the original points exist at this index
-                    if (
-                        originalPoints[endWallIndex] &&
-                        originalPoints[(endWallIndex + 1) % this._points.length]
-                    ) {
-                        const param = this.getParametricPosition(
-                            wall.end,
-                            originalPoints[endWallIndex],
-                            originalPoints[
-                                (endWallIndex + 1) % this._points.length
-                            ]
-                        );
+                    const param = wall.attachments.end.param;
 
-                        const endWall = {
-                            start: this._points[endWallIndex],
-                            end: this._points[
-                                (endWallIndex + 1) % this._points.length
-                            ],
-                        };
+                    const endWall = {
+                        start: this._points[endWallIndex],
+                        end: this._points[
+                            (endWallIndex + 1) % this._points.length
+                        ],
+                    };
 
-                        wall.end = {
-                            x:
-                                endWall.start.x +
-                                param * (endWall.end.x - endWall.start.x),
-                            y:
-                                endWall.start.y +
-                                param * (endWall.end.y - endWall.start.y),
-                        };
-                    }
+                    wall.end = {
+                        x:
+                            endWall.start.x +
+                            param * (endWall.end.x - endWall.start.x),
+                        y:
+                            endWall.start.y +
+                            param * (endWall.end.y - endWall.start.y),
+                    };
                 }
 
                 // Update helper points
@@ -1208,29 +1124,26 @@ class Walls {
                     : { ...endPoint },
             isInner: true,
             alignment: alignment,
+            // In the Walls class, modify the attachments object creation:
             attachments: {
                 start: startOnPolygon
                     ? {
                           point: { ...startPoint },
                           wallIndex: startOnPolygon.wallIndex,
                           isOuter: true,
+                          param: startOnPolygon.param, // Store the parametric position
                       }
                     : null,
-                end:
-                    intersections.length > 0
-                        ? {
-                              point: { ...intersections[0].point },
-                              wallIndex: intersections[0].wallIndex,
-                              isOuter: intersections[0].isOuter,
-                          }
-                        : endOnPolygon
-                        ? {
-                              point: { ...endPoint },
-                              wallIndex: endOnPolygon.wallIndex,
-                              isOuter: true,
-                          }
-                        : null,
+                end: endOnPolygon
+                    ? {
+                          point: { ...endPoint },
+                          wallIndex: endOnPolygon.wallIndex,
+                          isOuter: true,
+                          param: endOnPolygon.param, // Store the parametric position
+                      }
+                    : null,
             },
+
             helpers: [],
         };
         segments.push(firstSegment);
