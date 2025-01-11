@@ -561,90 +561,116 @@ class Walls {
         let magnetPoint = { x, y };
         let minDistance = Infinity;
         let foundMagnet = false;
+        const ENDPOINT_PRIORITY_MULTIPLIER = 0.5; // Makes endpoints more "magnetic"
 
-        // Check endpoints of all walls
+        // First check all endpoints (both outer and inner walls)
+        // Check outer wall endpoints
         for (let i = 0; i < this._points.length - 1; i++) {
             const start = this._points[i];
             const end = this._points[i + 1];
 
             // Check start point
             const startDist = this.getDistance({ x, y }, start);
-            if (startDist < this._magnetDistance && startDist < minDistance) {
+            if (
+                startDist < this._magnetDistance * 2 &&
+                startDist * ENDPOINT_PRIORITY_MULTIPLIER < minDistance
+            ) {
                 magnetPoint = { ...start };
-                minDistance = startDist;
+                minDistance = startDist * ENDPOINT_PRIORITY_MULTIPLIER;
                 foundMagnet = true;
             }
 
             // Check end point
             const endDist = this.getDistance({ x, y }, end);
-            if (endDist < this._magnetDistance && endDist < minDistance) {
-                magnetPoint = { ...end };
-                minDistance = endDist;
-                foundMagnet = true;
-            }
-
-            // Check wall alignment
-            const result = this.pointToLineDistance(
-                x,
-                y,
-                start.x,
-                start.y,
-                end.x,
-                end.y
-            );
             if (
-                result.distance < this._magnetDistance &&
-                result.param >= 0 &&
-                result.param <= 1 &&
-                result.distance < minDistance
+                endDist < this._magnetDistance * 2 &&
+                endDist * ENDPOINT_PRIORITY_MULTIPLIER < minDistance
             ) {
-                magnetPoint = result.closestPoint;
-                minDistance = result.distance;
+                magnetPoint = { ...end };
+                minDistance = endDist * ENDPOINT_PRIORITY_MULTIPLIER;
                 foundMagnet = true;
             }
         }
 
-        // Check inner walls if they exist
+        // Check inner wall endpoints if they exist
         if (this._innerWalls) {
             this._innerWalls.forEach((wall) => {
-                // Check wall endpoints
+                // Check start point
                 const startDist = this.getDistance({ x, y }, wall.start);
                 if (
-                    startDist < this._magnetDistance &&
-                    startDist < minDistance
+                    startDist < this._magnetDistance * 2 &&
+                    startDist * ENDPOINT_PRIORITY_MULTIPLIER < minDistance
                 ) {
                     magnetPoint = { ...wall.start };
-                    minDistance = startDist;
+                    minDistance = startDist * ENDPOINT_PRIORITY_MULTIPLIER;
                     foundMagnet = true;
                 }
 
+                // Check end point
                 const endDist = this.getDistance({ x, y }, wall.end);
-                if (endDist < this._magnetDistance && endDist < minDistance) {
+                if (
+                    endDist < this._magnetDistance * 2 &&
+                    endDist * ENDPOINT_PRIORITY_MULTIPLIER < minDistance
+                ) {
                     magnetPoint = { ...wall.end };
-                    minDistance = endDist;
+                    minDistance = endDist * ENDPOINT_PRIORITY_MULTIPLIER;
                     foundMagnet = true;
                 }
+            });
+        }
 
-                // Check wall alignment
+        // If no endpoint was found within magnetic range, check wall alignments
+        if (!foundMagnet) {
+            // Check outer wall alignments
+            for (let i = 0; i < this._points.length - 1; i++) {
+                const start = this._points[i];
+                const end = this._points[i + 1];
+
                 const result = this.pointToLineDistance(
                     x,
                     y,
-                    wall.start.x,
-                    wall.start.y,
-                    wall.end.x,
-                    wall.end.y
+                    start.x,
+                    start.y,
+                    end.x,
+                    end.y
                 );
                 if (
                     result.distance < this._magnetDistance &&
                     result.param >= 0 &&
-                    result.param <= 1 &&
-                    result.distance < minDistance
+                    result.param <= 1
                 ) {
-                    magnetPoint = result.closestPoint;
-                    minDistance = result.distance;
-                    foundMagnet = true;
+                    if (result.distance < minDistance) {
+                        magnetPoint = result.closestPoint;
+                        minDistance = result.distance;
+                        foundMagnet = true;
+                    }
                 }
-            });
+            }
+
+            // Check inner wall alignments
+            if (this._innerWalls) {
+                this._innerWalls.forEach((wall) => {
+                    const result = this.pointToLineDistance(
+                        x,
+                        y,
+                        wall.start.x,
+                        wall.start.y,
+                        wall.end.x,
+                        wall.end.y
+                    );
+                    if (
+                        result.distance < this._magnetDistance &&
+                        result.param >= 0 &&
+                        result.param <= 1
+                    ) {
+                        if (result.distance < minDistance) {
+                            magnetPoint = result.closestPoint;
+                            minDistance = result.distance;
+                            foundMagnet = true;
+                        }
+                    }
+                });
+            }
         }
 
         return {
