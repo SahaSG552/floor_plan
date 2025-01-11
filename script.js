@@ -1131,6 +1131,31 @@ class Walls {
             this._innerWalls = [];
         }
 
+        // First, find all intersections with existing inner walls
+        const existingInnerWallIntersections = [];
+        this._innerWalls.forEach((wall, index) => {
+            const intersection = this.lineIntersection(
+                startPoint,
+                endPoint,
+                wall.start,
+                wall.end
+            );
+            if (intersection && intersection.onLine1 && intersection.onLine2) {
+                existingInnerWallIntersections.push({
+                    point: { x: intersection.x, y: intersection.y },
+                    wallIndex: index,
+                });
+            }
+        });
+
+        // Split existing inner walls at intersection points
+        existingInnerWallIntersections.forEach((intersection) => {
+            this.splitInnerWallAtPoint(
+                intersection.wallIndex,
+                intersection.point
+            );
+        });
+
         // Check if either point lies on an existing inner wall
         const startOnInnerWall = this.isPointOnInnerWall(startPoint);
         const endOnInnerWall = this.isPointOnInnerWall(endPoint);
@@ -1172,7 +1197,6 @@ class Walls {
         const endOnPolygon = this.isPointOnPolygonWall(endPoint);
 
         // Create wall segments
-        let currentPoint = { ...startPoint };
         let segments = [];
 
         // Add first segment
@@ -1265,8 +1289,19 @@ class Walls {
             segments.push(lastSegment);
         }
 
+        // Calculate helper points for each segment
+        segments.forEach((segment) => {
+            segment.helpers = this.recalculateHelperPoints(segment);
+        });
+
         // Add all segments to inner walls
         this._innerWalls.push(...segments);
+
+        // Update all inner walls to handle any new intersections
+        this._innerWalls = this._innerWalls.map((wall) => {
+            wall.helpers = this.recalculateHelperPoints(wall);
+            return wall;
+        });
     }
 
     // Add this new method to the Walls class
@@ -1465,9 +1500,19 @@ class Walls {
 
     findAllIntersections(start, end) {
         const intersections = [];
-        const MIN_SEGMENT_LENGTH = 3; // Minimum length for wall segments
+        const MIN_SEGMENT_LENGTH = 3;
+        const EPSILON = 0.0001; // Small value for floating-point comparisons
 
-        // Function to check if a point is too close to start or end
+        // Helper function to check if a point already exists in intersections
+        const pointExists = (point) => {
+            return intersections.some(
+                (existing) =>
+                    Math.abs(existing.point.x - point.x) < EPSILON &&
+                    Math.abs(existing.point.y - point.y) < EPSILON
+            );
+        };
+
+        // Helper function to check if a point is too close to endpoints
         const isTooClose = (point) => {
             const distToStart = Math.hypot(
                 point.x - start.x,
@@ -1491,19 +1536,21 @@ class Walls {
 
             if (result && result.onLine1 && result.onLine2) {
                 const intersectionPoint = { x: result.x, y: result.y };
-
-                // Only add intersection if it's not too close to start or end points
-                if (!isTooClose(intersectionPoint)) {
+                if (
+                    !isTooClose(intersectionPoint) &&
+                    !pointExists(intersectionPoint)
+                ) {
                     intersections.push({
                         point: intersectionPoint,
                         wallIndex: i,
                         isOuter: true,
+                        param: result.param1,
                     });
                 }
             }
         }
 
-        // Check intersections with other inner walls
+        // Check intersections with inner walls
         if (this._innerWalls) {
             this._innerWalls.forEach((wall, index) => {
                 const result = this.lineIntersection(
@@ -1515,20 +1562,43 @@ class Walls {
 
                 if (result && result.onLine1 && result.onLine2) {
                     const intersectionPoint = { x: result.x, y: result.y };
-
-                    // Only add intersection if it's not too close to start or end points
-                    if (!isTooClose(intersectionPoint)) {
+                    if (
+                        !isTooClose(intersectionPoint) &&
+                        !pointExists(intersectionPoint)
+                    ) {
                         intersections.push({
                             point: intersectionPoint,
                             wallIndex: index,
                             isOuter: false,
+                            param: result.param1,
                         });
                     }
                 }
             });
         }
 
-        return intersections;
+        // Sort intersections by distance from start point
+        intersections.sort((a, b) => {
+            const distA = Math.hypot(a.point.x - start.x, a.point.y - start.y);
+            const distB = Math.hypot(b.point.x - start.x, b.point.y - start.y);
+            return distA - distB;
+        });
+
+        // Remove duplicate intersections that are very close to each other
+        const filteredIntersections = intersections.filter(
+            (intersection, index) => {
+                if (index === 0) return true;
+                const prevPoint = intersections[index - 1].point;
+                const currentPoint = intersection.point;
+                const distance = Math.hypot(
+                    currentPoint.x - prevPoint.x,
+                    currentPoint.y - prevPoint.y
+                );
+                return distance >= MIN_SEGMENT_LENGTH;
+            }
+        );
+
+        return filteredIntersections;
     }
 
     updateAttachedInnerWalls() {
