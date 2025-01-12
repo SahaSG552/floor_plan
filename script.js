@@ -336,74 +336,143 @@ class Walls {
                     wall.attachments.start.wallIndex !== undefined
                 ) {
                     const startWallIndex = wall.attachments.start.wallIndex;
-                    // Check if the original points exist at this index
-                    if (
-                        originalPoints[startWallIndex] &&
-                        originalPoints[
-                            (startWallIndex + 1) % this._points.length
-                        ]
-                    ) {
-                        const param = this.getParametricPosition(
-                            wall.start,
-                            originalPoints[startWallIndex],
-                            originalPoints[
-                                (startWallIndex + 1) % this._points.length
-                            ]
-                        );
+                    if (wall.attachments.start.isPoint) {
+                        // Direct connection to polygon point
+                        wall.start = {
+                            x: this._points[startWallIndex].x,
+                            y: this._points[startWallIndex].y,
+                        };
 
-                        const startWall = {
+                        // Check if point is shared by two walls and needs updating
+                        const prevWall = {
+                            start: this._points[
+                                (startWallIndex - 1 + this._points.length) %
+                                    this._points.length
+                            ],
+                            end: this._points[startWallIndex],
+                        };
+                        const nextWall = {
                             start: this._points[startWallIndex],
                             end: this._points[
                                 (startWallIndex + 1) % this._points.length
                             ],
                         };
 
-                        wall.start = {
-                            x:
-                                startWall.start.x +
-                                param * (startWall.end.x - startWall.start.x),
-                            y:
-                                startWall.start.y +
-                                param * (startWall.end.y - startWall.start.y),
-                        };
+                        // Update connection if either connected wall is moving
+                        if (
+                            this.isWallMoving(prevWall) ||
+                            this.isWallMoving(nextWall)
+                        ) {
+                            wall.start = {
+                                x: this._points[startWallIndex].x,
+                                y: this._points[startWallIndex].y,
+                            };
+                        }
+                    } else {
+                        // Connection to wall line using parametric position
+                        if (
+                            originalPoints[startWallIndex] &&
+                            originalPoints[
+                                (startWallIndex + 1) % this._points.length
+                            ]
+                        ) {
+                            const param = this.getParametricPosition(
+                                wall.start,
+                                originalPoints[startWallIndex],
+                                originalPoints[
+                                    (startWallIndex + 1) % this._points.length
+                                ]
+                            );
+
+                            const startWall = {
+                                start: this._points[startWallIndex],
+                                end: this._points[
+                                    (startWallIndex + 1) % this._points.length
+                                ],
+                            };
+
+                            wall.start = {
+                                x:
+                                    startWall.start.x +
+                                    param *
+                                        (startWall.end.x - startWall.start.x),
+                                y:
+                                    startWall.start.y +
+                                    param *
+                                        (startWall.end.y - startWall.start.y),
+                            };
+                        }
                     }
                 }
 
                 // Update end attachment
-                if (
-                    wall.attachments.end &&
-                    wall.attachments.end.isOuter &&
-                    wall.attachments.end.wallIndex !== undefined
-                ) {
+                if (wall.attachments.end && wall.attachments.end.isOuter) {
                     const endWallIndex = wall.attachments.end.wallIndex;
-                    // Check if the original points exist at this index
-                    if (
-                        originalPoints[endWallIndex] &&
-                        originalPoints[(endWallIndex + 1) % this._points.length]
-                    ) {
-                        const param = this.getParametricPosition(
-                            wall.end,
-                            originalPoints[endWallIndex],
-                            originalPoints[
-                                (endWallIndex + 1) % this._points.length
-                            ]
-                        );
 
-                        const endWall = {
+                    if (wall.attachments.end.isPoint) {
+                        // Direct connection to polygon point
+                        wall.end = {
+                            x: this._points[endWallIndex].x,
+                            y: this._points[endWallIndex].y,
+                        };
+
+                        // Check if point is shared by two walls and needs updating
+                        const prevWall = {
+                            start: this._points[
+                                (endWallIndex - 1 + this._points.length) %
+                                    this._points.length
+                            ],
+                            end: this._points[endWallIndex],
+                        };
+                        const nextWall = {
                             start: this._points[endWallIndex],
                             end: this._points[
                                 (endWallIndex + 1) % this._points.length
                             ],
                         };
 
-                        wall.end = {
-                            x:
-                                endWall.start.x +
-                                param * (endWall.end.x - endWall.start.x),
-                            y:
-                                endWall.start.y +
-                                param * (endWall.end.y - endWall.start.y),
-                        };
+                        // Update connection if either connected wall is moving
+                        if (
+                            this.isWallMoving(prevWall) ||
+                            this.isWallMoving(nextWall)
+                        ) {
+                            wall.end = {
+                                x: this._points[endWallIndex].x,
+                                y: this._points[endWallIndex].y,
+                            };
+                        }
+                    } else {
+                        // Connection to wall line using parametric position
+                        if (
+                            originalPoints[endWallIndex] &&
+                            originalPoints[
+                                (endWallIndex + 1) % this._points.length
+                            ]
+                        ) {
+                            const param = this.getParametricPosition(
+                                wall.end,
+                                originalPoints[endWallIndex],
+                                originalPoints[
+                                    (endWallIndex + 1) % this._points.length
+                                ]
+                            );
+
+                            const endWall = {
+                                start: this._points[endWallIndex],
+                                end: this._points[
+                                    (endWallIndex + 1) % this._points.length
+                                ],
+                            };
+
+                            wall.end = {
+                                x:
+                                    endWall.start.x +
+                                    param * (endWall.end.x - endWall.start.x),
+                                y:
+                                    endWall.start.y +
+                                    param * (endWall.end.y - endWall.start.y),
+                            };
+                        }
                     }
                 }
 
@@ -1214,6 +1283,9 @@ class Walls {
                           point: { ...startPoint },
                           wallIndex: startOnPolygon.wallIndex,
                           isOuter: true,
+                          isPoint:
+                              startOnPolygon.param < 0.1 ||
+                              startOnPolygon.param > 0.9, // Check if near endpoint
                       }
                     : null,
                 end:
@@ -1222,12 +1294,16 @@ class Walls {
                               point: { ...intersections[0].point },
                               wallIndex: intersections[0].wallIndex,
                               isOuter: intersections[0].isOuter,
+                              isPoint: false, // Line intersection
                           }
                         : endOnPolygon
                         ? {
                               point: { ...endPoint },
                               wallIndex: endOnPolygon.wallIndex,
                               isOuter: true,
+                              isPoint:
+                                  endOnPolygon.param < 0.1 ||
+                                  endOnPolygon.param > 0.9, // Check if near endpoint
                           }
                         : null,
             },
@@ -1247,11 +1323,13 @@ class Walls {
                         point: { ...intersections[i].point },
                         wallIndex: intersections[i].wallIndex,
                         isOuter: intersections[i].isOuter,
+                        isPoint: false, // Line intersections are not points
                     },
                     end: {
                         point: { ...intersections[i + 1].point },
                         wallIndex: intersections[i + 1].wallIndex,
                         isOuter: intersections[i + 1].isOuter,
+                        isPoint: false, // Line intersections are not points
                     },
                 },
                 helpers: [],
@@ -1275,12 +1353,16 @@ class Walls {
                             intersections[intersections.length - 1].wallIndex,
                         isOuter:
                             intersections[intersections.length - 1].isOuter,
+                        isPoint: false, // Line intersection
                     },
                     end: endOnPolygon
                         ? {
                               point: { ...endPoint },
                               wallIndex: endOnPolygon.wallIndex,
                               isOuter: true,
+                              isPoint:
+                                  endOnPolygon.param < 0.1 ||
+                                  endOnPolygon.param > 0.9, // Check if near endpoint
                           }
                         : null,
                 },
@@ -1302,6 +1384,52 @@ class Walls {
             wall.helpers = this.recalculateHelperPoints(wall);
             return wall;
         });
+    }
+
+    isWallMoving(wall) {
+        // If there's no selected wall or no drag operation in progress, no wall is moving
+        if (this._selectedWallIndex === -1 || !this._dragStartPoint) {
+            return false;
+        }
+
+        // Get the selected wall's start and end points
+        const selectedWallStart = this._points[this._selectedWallIndex];
+        const selectedWallEnd =
+            this._points[(this._selectedWallIndex + 1) % this._points.length];
+
+        // Check if the provided wall shares points with the selected wall
+        const isStartShared =
+            (Math.abs(wall.start.x - selectedWallStart.x) < 0.001 &&
+                Math.abs(wall.start.y - selectedWallStart.y) < 0.001) ||
+            (Math.abs(wall.start.x - selectedWallEnd.x) < 0.001 &&
+                Math.abs(wall.start.y - selectedWallEnd.y) < 0.001);
+
+        const isEndShared =
+            (Math.abs(wall.end.x - selectedWallStart.x) < 0.001 &&
+                Math.abs(wall.end.y - selectedWallStart.y) < 0.001) ||
+            (Math.abs(wall.end.x - selectedWallEnd.x) < 0.001 &&
+                Math.abs(wall.end.y - selectedWallEnd.y) < 0.001);
+
+        // Compare with original points to detect movement
+        if (this._originalWallPoints) {
+            const originalStart =
+                this._originalWallPoints[this._selectedWallIndex];
+            const originalEnd =
+                this._originalWallPoints[
+                    (this._selectedWallIndex + 1) %
+                        this._originalWallPoints.length
+                ];
+
+            const hasMoved =
+                Math.abs(selectedWallStart.x - originalStart.x) > 0.001 ||
+                Math.abs(selectedWallStart.y - originalStart.y) > 0.001 ||
+                Math.abs(selectedWallEnd.x - originalEnd.x) > 0.001 ||
+                Math.abs(selectedWallEnd.y - originalEnd.y) > 0.001;
+
+            return (isStartShared || isEndShared) && hasMoved;
+        }
+
+        return false;
     }
 
     // Add this new method to the Walls class
@@ -1333,6 +1461,7 @@ class Walls {
                 end: {
                     point: { ...point },
                     isIntersection: true,
+                    isPoint: true, // This is a point intersection
                 },
             },
             helpers: wall.helpers
@@ -1353,6 +1482,7 @@ class Walls {
                 start: {
                     point: { ...point },
                     isIntersection: true,
+                    isPoint: true, // This is a point intersection
                 },
                 end: { ...wall.attachments.end },
             },
@@ -1371,7 +1501,7 @@ class Walls {
         return [segment1, segment2];
     }
 
-    // Add this helper method to check if a point is on a polygon wall
+    // Helper method to check if a point is on a polygon wall
     isPointOnPolygonWall(point) {
         for (let i = 0; i < this._points.length - 1; i++) {
             const start = this._points[i];
@@ -1393,6 +1523,7 @@ class Walls {
                 return {
                     wallIndex: i,
                     param: result.param,
+                    isEndpoint: result.param < 0.1 || result.param > 0.9,
                 };
             }
         }
