@@ -257,7 +257,13 @@ class RoomPlanner {
             this.draw(tempPoints);
             return;
         }
-
+        if (
+            this._walls._selectedInnerWallIndex !== -1 &&
+            this._walls._dragStartPoint
+        ) {
+            this._walls.updateInnerWallPosition(e.offsetX, e.offsetY);
+            this.draw();
+        }
         if (this._isInnerWallMode && this._innerWallStartPoint) {
             // Calculate delta and angle from start point
             const dx = e.offsetX - this._innerWallStartPoint.x;
@@ -407,6 +413,31 @@ class RoomPlanner {
             return; // Disable wall selection in inner wall mode
         }
 
+        // Check for inner wall selection first
+        if (this._walls._innerWalls) {
+            for (let i = 0; i < this._walls._innerWalls.length; i++) {
+                const wall = this._walls._innerWalls[i];
+                const result = this._walls.pointToLineDistance(
+                    e.offsetX,
+                    e.offsetY,
+                    wall.start.x,
+                    wall.start.y,
+                    wall.end.x,
+                    wall.end.y
+                );
+
+                if (
+                    result.distance < this._walls.thickness &&
+                    result.param >= 0 &&
+                    result.param <= 1
+                ) {
+                    this._walls.selectInnerWall(i);
+                    this._walls.startDragging({ x: e.offsetX, y: e.offsetY });
+                    return;
+                }
+            }
+        }
+
         if (this._sofa && this._sofa.isPointInside(e.offsetX, e.offsetY)) {
             this._isDraggingSofa = true;
             this._mouseOffset = {
@@ -436,6 +467,10 @@ class RoomPlanner {
         } else if (this._isDraggingSofa) {
             this._isDraggingSofa = false;
             this.logState("Stopped dragging sofa");
+        } else if (this._walls._selectedInnerWallIndex !== -1) {
+            this._walls.stopDragging();
+            this._walls.deselectInnerWall();
+            this.draw();
         }
     }
 
