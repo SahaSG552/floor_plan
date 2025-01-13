@@ -337,12 +337,20 @@ class Walls {
                 ) {
                     const startWallIndex = wall.attachments.start.wallIndex;
                     if (wall.attachments.start.isPoint) {
-                        //** Not working properly in this case, connection points shifting after polygon walls moving */
                         // Direct connection to polygon point
-                        wall.start = {
-                            x: this._points[startWallIndex].x,
-                            y: this._points[startWallIndex].y,
-                        };
+                        // Find the nearest polygon point
+                        const nearestPoint = this.findNearestPolygonPoint(
+                            wall.start
+                        );
+
+                        if (nearestPoint) {
+                            wall.start = {
+                                x: nearestPoint.x,
+                                y: nearestPoint.y,
+                            };
+                            wall.attachments.start.wallIndex =
+                                nearestPoint.index;
+                        }
                     } else {
                         // Connection to wall line using parametric position
                         if (
@@ -386,10 +394,18 @@ class Walls {
 
                     if (wall.attachments.end.isPoint) {
                         // Direct connection to polygon point
-                        wall.end = {
-                            x: this._points[endWallIndex].x,
-                            y: this._points[endWallIndex].y,
-                        };
+                        // Find the nearest polygon point
+                        const nearestPoint = this.findNearestPolygonPoint(
+                            wall.end
+                        );
+
+                        if (nearestPoint) {
+                            wall.end = {
+                                x: nearestPoint.x,
+                                y: nearestPoint.y,
+                            };
+                            wall.attachments.end.wallIndex = nearestPoint.index;
+                        }
                     } else {
                         // Connection to wall line using parametric position
                         if (
@@ -435,7 +451,28 @@ class Walls {
         this.logState("Wall position updated");
         return true;
     }
+    findNearestPolygonPoint(point) {
+        let nearestPoint = null;
+        let minDistance = Infinity;
+        let nearestIndex = -1;
 
+        this._points.forEach((polygonPoint, index) => {
+            const distance = this.getDistance(point, polygonPoint);
+            if (distance < minDistance) {
+                minDistance = distance;
+                nearestPoint = polygonPoint;
+                nearestIndex = index;
+            }
+        });
+
+        return nearestPoint
+            ? {
+                  x: nearestPoint.x,
+                  y: nearestPoint.y,
+                  index: nearestIndex,
+              }
+            : null;
+    }
     isPointOnWallSegment(point, wallStart, wallEnd) {
         const distance = this.pointToLineDistance(
             point.x,
