@@ -337,37 +337,12 @@ class Walls {
                 ) {
                     const startWallIndex = wall.attachments.start.wallIndex;
                     if (wall.attachments.start.isPoint) {
+                        //** Not working properly in this case, connection points shifting after polygon walls moving */
                         // Direct connection to polygon point
                         wall.start = {
                             x: this._points[startWallIndex].x,
                             y: this._points[startWallIndex].y,
                         };
-
-                        // Check if point is shared by two walls and needs updating
-                        const prevWall = {
-                            start: this._points[
-                                (startWallIndex - 1 + this._points.length) %
-                                    this._points.length
-                            ],
-                            end: this._points[startWallIndex],
-                        };
-                        const nextWall = {
-                            start: this._points[startWallIndex],
-                            end: this._points[
-                                (startWallIndex + 1) % this._points.length
-                            ],
-                        };
-
-                        // Update connection if either connected wall is moving
-                        if (
-                            this.isWallMoving(prevWall) ||
-                            this.isWallMoving(nextWall)
-                        ) {
-                            wall.start = {
-                                x: this._points[startWallIndex].x,
-                                y: this._points[startWallIndex].y,
-                            };
-                        }
                     } else {
                         // Connection to wall line using parametric position
                         if (
@@ -415,32 +390,6 @@ class Walls {
                             x: this._points[endWallIndex].x,
                             y: this._points[endWallIndex].y,
                         };
-
-                        // Check if point is shared by two walls and needs updating
-                        const prevWall = {
-                            start: this._points[
-                                (endWallIndex - 1 + this._points.length) %
-                                    this._points.length
-                            ],
-                            end: this._points[endWallIndex],
-                        };
-                        const nextWall = {
-                            start: this._points[endWallIndex],
-                            end: this._points[
-                                (endWallIndex + 1) % this._points.length
-                            ],
-                        };
-
-                        // Update connection if either connected wall is moving
-                        if (
-                            this.isWallMoving(prevWall) ||
-                            this.isWallMoving(nextWall)
-                        ) {
-                            wall.end = {
-                                x: this._points[endWallIndex].x,
-                                y: this._points[endWallIndex].y,
-                            };
-                        }
                     } else {
                         // Connection to wall line using parametric position
                         if (
@@ -1164,7 +1113,6 @@ class Walls {
         return false;
     }
 
-    // Add this method to the Walls class
     isPointOnInnerWall(point) {
         if (!this._innerWalls) return null;
 
@@ -1432,7 +1380,6 @@ class Walls {
         return false;
     }
 
-    // Add this new method to the Walls class
     splitInnerWallAtPoint(wallIndex, point) {
         const wall = this._innerWalls[wallIndex];
         const MIN_SEGMENT_LENGTH = 3;
