@@ -346,16 +346,22 @@ class Walls {
         const wall = this._innerWalls[this._selectedInnerWallIndex];
         if (!wall) return;
 
-        // Calculate wall vector
-        const dx = wall.end.x - wall.start.x;
-        const dy = wall.end.y - wall.start.y;
-        const length = Math.sqrt(dx * dx + dy * dy);
+        // Calculate original wall vector and direction
+        const originalDx =
+            this._originalInnerWallPoints.end.x -
+            this._originalInnerWallPoints.start.x;
+        const originalDy =
+            this._originalInnerWallPoints.end.y -
+            this._originalInnerWallPoints.start.y;
+        const originalLength = Math.sqrt(
+            originalDx * originalDx + originalDy * originalDy
+        );
 
-        if (length === 0) return;
+        if (originalLength === 0) return;
 
         // Calculate normalized direction and normal vectors
-        const directionX = dx / length;
-        const directionY = dy / length;
+        const directionX = originalDx / originalLength;
+        const directionY = originalDy / originalLength;
         const normalX = -directionY;
         const normalY = directionX;
 
@@ -363,14 +369,12 @@ class Walls {
         const dragDX = x - this._dragStartPoint.x;
         const dragDY = y - this._dragStartPoint.y;
 
-        // Project movement onto normal vector
+        // Project movement onto normal vector (perpendicular movement only)
         const dotProduct = dragDX * normalX + dragDY * normalY;
-
-        // Calculate new position
         const moveX = dotProduct * normalX;
         const moveY = dotProduct * normalY;
 
-        // Store temporary new positions
+        // Calculate new wall position maintaining original direction
         const newStart = {
             x: this._originalInnerWallPoints.start.x + moveX,
             y: this._originalInnerWallPoints.start.y + moveY,
@@ -380,7 +384,7 @@ class Walls {
             y: this._originalInnerWallPoints.end.y + moveY,
         };
 
-        // Extend the wall in both directions to find intersections
+        // Extend wall in both directions to find intersections
         const extendedStart = {
             x: newStart.x - directionX * 1000,
             y: newStart.y - directionY * 1000,
@@ -407,31 +411,31 @@ class Walls {
                     point: { x: intersection.x, y: intersection.y },
                     wallIndex: i,
                     isOuter: true,
+                    param: intersection.param2,
                 });
             }
         }
 
         // Check inner walls
-        if (this._innerWalls) {
-            this._innerWalls.forEach((otherWall, index) => {
-                if (index !== this._selectedInnerWallIndex) {
-                    const intersection = this.lineIntersection(
-                        extendedStart,
-                        extendedEnd,
-                        otherWall.start,
-                        otherWall.end
-                    );
+        this._innerWalls.forEach((otherWall, index) => {
+            if (index !== this._selectedInnerWallIndex) {
+                const intersection = this.lineIntersection(
+                    extendedStart,
+                    extendedEnd,
+                    otherWall.start,
+                    otherWall.end
+                );
 
-                    if (intersection && intersection.onLine2) {
-                        intersections.push({
-                            point: { x: intersection.x, y: intersection.y },
-                            wallIndex: index,
-                            isOuter: false,
-                        });
-                    }
+                if (intersection && intersection.onLine2) {
+                    intersections.push({
+                        point: { x: intersection.x, y: intersection.y },
+                        wallIndex: index,
+                        isOuter: false,
+                        param: intersection.param2,
+                    });
                 }
-            });
-        }
+            }
+        });
 
         // Sort intersections by distance from newStart
         intersections.sort((a, b) => {
@@ -440,7 +444,7 @@ class Walls {
             return distA - distB;
         });
 
-        // Update wall positions using the closest intersections
+        // Update wall position using closest intersections
         if (intersections.length >= 2) {
             wall.start = { ...intersections[0].point };
             wall.end = { ...intersections[1].point };
@@ -450,21 +454,63 @@ class Walls {
                 point: { ...intersections[0].point },
                 wallIndex: intersections[0].wallIndex,
                 isOuter: intersections[0].isOuter,
-                isPoint: false,
             };
-
             wall.attachments.end = {
                 point: { ...intersections[1].point },
                 wallIndex: intersections[1].wallIndex,
                 isOuter: intersections[1].isOuter,
-                isPoint: false,
             };
+
+            // Update connected walls
+            this._innerWalls.forEach((otherWall, index) => {
+                if (index !== this._selectedInnerWallIndex) {
+                    // Check if walls share start or end points
+                    if (
+                        this.arePointsEqual(
+                            otherWall.start,
+                            this._originalInnerWallPoints.start
+                        ) ||
+                        this.arePointsEqual(
+                            otherWall.start,
+                            this._originalInnerWallPoints.end
+                        )
+                    ) {
+                        const sharedPoint = this.arePointsEqual(
+                            otherWall.start,
+                            this._originalInnerWallPoints.start
+                        )
+                            ? wall.start
+                            : wall.end;
+                        otherWall.start = { ...sharedPoint };
+                    }
+                    if (
+                        this.arePointsEqual(
+                            otherWall.end,
+                            this._originalInnerWallPoints.start
+                        ) ||
+                        this.arePointsEqual(
+                            otherWall.end,
+                            this._originalInnerWallPoints.end
+                        )
+                    ) {
+                        const sharedPoint = this.arePointsEqual(
+                            otherWall.end,
+                            this._originalInnerWallPoints.start
+                        )
+                            ? wall.start
+                            : wall.end;
+                        otherWall.end = { ...sharedPoint };
+                    }
+                }
+            });
         }
+
+        // Update drag start point for next frame
+        this._dragStartPoint = { x, y };
 
         // Update helper points
         wall.helpers = this.recalculateHelperPoints(wall);
 
-        this.logState("Inner wall position updated");
         return true;
     }
 
